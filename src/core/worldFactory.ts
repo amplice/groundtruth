@@ -360,6 +360,7 @@ export function makeThirdPersonSurvivalWorld(): WorldDocument {
       fogColor: "#dfe4e8",
       fogDensity: 0.01,
       gridSize: 220,
+      sectorSize: 20,
     },
     prefabs: createDefaultPrefabs(),
     entities: [
@@ -425,6 +426,11 @@ export function makeFlatOutpostWorld(
   const buildingEntities: EntitySpec[] = [];
   const crateEntities: EntitySpec[] = [];
   const zombieEntities: EntitySpec[] = [];
+  const spawnZones: ZoneSpec[] = [
+    makeSpawnZone("spawn.north", "North Encounter", makeVec3(0, 1, -config.worldHalfExtent * 0.72), makeVec3(18, 2, 12)),
+    makeSpawnZone("spawn.east", "East Encounter", makeVec3(config.worldHalfExtent * 0.72, 1, 0), makeVec3(12, 2, 18)),
+    makeSpawnZone("spawn.southwest", "Southwest Encounter", makeVec3(-config.worldHalfExtent * 0.56, 1, config.worldHalfExtent * 0.54), makeVec3(16, 2, 16)),
+  ];
   const zones: ZoneSpec[] = [
     {
       id: "safe.center",
@@ -439,6 +445,7 @@ export function makeFlatOutpostWorld(
       },
       tags: ["starter", "safe"],
     },
+    ...spawnZones,
   ];
 
   const occupied: Array<{ x: number; z: number; radius: number }> = [
@@ -520,19 +527,15 @@ export function makeFlatOutpostWorld(
 
   for (let index = 0; index < config.zombieCount; index += 1) {
     const spawn = sampleRingPosition(random, config.worldHalfExtent * 0.45, config.worldHalfExtent - 8);
+    const homeZoneId = findNearestZoneId(spawnZones, spawn.x, spawn.z);
     zombieEntities.push(
       makeZombieEntity(
         `zombie.${index + 1}`,
         makeVec3(spawn.x, 1.1, spawn.z),
+        homeZoneId,
       ),
     );
   }
-
-  zones.push(
-    makeSpawnZone("spawn.north", "North Encounter", makeVec3(0, 1, -config.worldHalfExtent * 0.72), makeVec3(18, 2, 12)),
-    makeSpawnZone("spawn.east", "East Encounter", makeVec3(config.worldHalfExtent * 0.72, 1, 0), makeVec3(12, 2, 18)),
-    makeSpawnZone("spawn.southwest", "Southwest Encounter", makeVec3(-config.worldHalfExtent * 0.56, 1, config.worldHalfExtent * 0.54), makeVec3(16, 2, 16)),
-  );
 
   return {
     metadata: {
@@ -549,6 +552,7 @@ export function makeFlatOutpostWorld(
       fogColor: "#d9e0e4",
       fogDensity: 0.008,
       gridSize: Math.max(220, worldSize + 32),
+      sectorSize: 24,
     },
     prefabs: createDefaultPrefabs(),
     entities: [
@@ -588,11 +592,24 @@ function makePlayerEntity(position: { x: number; y: number; z: number }): Entity
 function makeZombieEntity(
   id: string,
   position: { x: number; y: number; z: number },
+  homeZoneId?: string,
 ): EntitySpec {
   return {
     id,
     name: id.replace(".", " ").replace("_", " "),
     prefabId: "zombie_basic",
+    components: homeZoneId
+      ? {
+          brain: {
+            archetype: "zombie",
+            aggroRadius: 14,
+            activityRadius: 18,
+            homeZoneId,
+            sleepRadius: 44,
+            farThinkIntervalSeconds: 0.35,
+          },
+        }
+      : undefined,
     transform: {
       position: makeVec3(position.x, position.y, position.z),
     },
@@ -655,6 +672,23 @@ function pickQuarterTurn(random: () => number): number {
 
 function distance2d(ax: number, az: number, bx: number, bz: number): number {
   return Math.hypot(ax - bx, az - bz);
+}
+
+function findNearestZoneId(
+  zones: ZoneSpec[],
+  x: number,
+  z: number,
+): string | undefined {
+  let nearestZoneId: string | undefined;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  for (const zone of zones) {
+    const distance = distance2d(zone.transform.position.x, zone.transform.position.z, x, z);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestZoneId = zone.id;
+    }
+  }
+  return nearestZoneId;
 }
 
 function createMulberry32(seed: number): () => number {

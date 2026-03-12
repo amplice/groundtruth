@@ -5,6 +5,7 @@ import {
   WorldDocument,
   ZoneSpec,
   resolveEntity,
+  sectorKeyForPoint,
 } from "./schema";
 
 export type EvaluationSeverity = "info" | "warn" | "error";
@@ -71,6 +72,7 @@ export function evaluateWorld(world: WorldDocument): EvaluationReport {
 
   evaluateSceneryOverlaps(entities, findings);
   evaluateZones(world, entities, player ?? null, spawnZones, safeZones, findings);
+  evaluateSectorDensity(world, entities, findings);
   if (player) {
     evaluateReachability(entities, player, spawnZones, safeZones, lootEntities, findings);
   }
@@ -94,6 +96,43 @@ export function evaluateWorld(world: WorldDocument): EvaluationReport {
     findings,
     counts,
   };
+}
+
+function evaluateSectorDensity(
+  world: WorldDocument,
+  entities: ResolvedEntity[],
+  findings: EvaluationFinding[],
+): void {
+  const sectorTotals = new Map<string, number>();
+  const zombieTotals = new Map<string, number>();
+
+  for (const entity of entities) {
+    const sectorKey = sectorKeyForPoint(entity.transform.position, world.settings.sectorSize);
+    sectorTotals.set(sectorKey, (sectorTotals.get(sectorKey) ?? 0) + 1);
+    if (entity.components.brain?.archetype === "zombie") {
+      zombieTotals.set(sectorKey, (zombieTotals.get(sectorKey) ?? 0) + 1);
+    }
+  }
+
+  for (const [sectorKey, count] of sectorTotals) {
+    if (count >= 18) {
+      findings.push({
+        severity: "warn",
+        code: "sector_entity_density",
+        message: `Sector ${sectorKey} is dense with ${count} entities.`,
+      });
+    }
+  }
+
+  for (const [sectorKey, count] of zombieTotals) {
+    if (count >= 8) {
+      findings.push({
+        severity: "warn",
+        code: "sector_zombie_density",
+        message: `Sector ${sectorKey} contains ${count} zombies.`,
+      });
+    }
+  }
 }
 
 function validateEntityContract(

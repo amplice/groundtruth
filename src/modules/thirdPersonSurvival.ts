@@ -7,6 +7,8 @@ import {
   ResolvedEntity,
   Vec3,
   resolveEntity,
+  sectorCoordForPoint,
+  sectorKeyForPoint,
 } from "../core/schema";
 import { ModuleContext, RuntimeModule } from "./types";
 
@@ -48,6 +50,8 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     throttled: 0,
     sleeping: 0,
   };
+
+  private sectorSummary = "No sector activity yet.";
 
   update(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
@@ -314,6 +318,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       return;
     }
     const resolvedPlayer = resolveEntity(world, player);
+    const sectorSize = world.settings.sectorSize;
+    const playerSector = sectorCoordForPoint(resolvedPlayer.transform.position, sectorSize);
+    const occupiedZombieSectors = new Set<string>();
+    const activeZombieSectors = new Set<string>();
     this.zombieActivityCounts = {
       active: 0,
       throttled: 0,
@@ -358,13 +366,26 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       const deltaX = player.transform.position.x - entity.transform.position.x;
       const deltaZ = player.transform.position.z - entity.transform.position.z;
       const distance = Math.hypot(deltaX, deltaZ);
+      const zombieSector = sectorCoordForPoint(entity.transform.position, sectorSize);
+      const sectorDistance = Math.max(
+        Math.abs(zombieSector.x - playerSector.x),
+        Math.abs(zombieSector.z - playerSector.z),
+      );
+      occupiedZombieSectors.add(sectorKeyForPoint(entity.transform.position, sectorSize));
       const aggroRadius = brain.aggroRadius ?? 0;
       const activityRadius = brain.activityRadius ?? Math.max(aggroRadius + 4, 18);
       const sleepRadius = brain.sleepRadius ?? Math.max(activityRadius + 24, 42);
       const activityTier: ZombieActivityTier =
-        distance <= activityRadius ? "active" : distance <= sleepRadius ? "throttled" : "sleeping";
+        distance <= activityRadius || sectorDistance <= 1
+          ? "active"
+          : distance <= sleepRadius || sectorDistance <= 2
+            ? "throttled"
+            : "sleeping";
       this.zombieActivityTiers.set(entity.id, activityTier);
       this.zombieActivityCounts[activityTier] += 1;
+      if (activityTier === "active") {
+        activeZombieSectors.add(sectorKeyForPoint(entity.transform.position, sectorSize));
+      }
       const attackRange = combat?.range ?? 0;
       const updateDt = this.consumeZombieUpdateDt(
         entity.id,
@@ -430,6 +451,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       });
       this.recordZombieMotion(entity.id, movement.position, true, updateDt);
     }
+    this.sectorSummary = `Player sector ${playerSector.x}:${playerSector.z} | zombie sectors ${activeZombieSectors.size} active / ${occupiedZombieSectors.size} occupied`;
   }
 
   private applyDamage(
@@ -543,6 +565,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
+      this.sectorSummary,
     ];
 
     if (overrideLine) {
@@ -585,6 +608,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.zombieActivityCounts.active} active, ${this.zombieActivityCounts.throttled} throttled, ${this.zombieActivityCounts.sleeping} sleeping`,
+      this.sectorSummary,
     ];
 
     if (stuckZombies.length > 0) {

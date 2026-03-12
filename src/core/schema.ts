@@ -235,6 +235,7 @@ export interface WorldSettings {
   fogColor: string;
   fogDensity: number;
   gridSize: number;
+  sectorSize: number;
 }
 
 export interface WorldDocument {
@@ -263,6 +264,7 @@ export interface WorldDiagnostics {
   animationControllerCount: number;
   combatantCount: number;
   interactiveCount: number;
+  occupiedSectorCount: number;
 }
 
 export function makeVec3(x = 0, y = 0, z = 0): Vec3 {
@@ -288,6 +290,7 @@ export function emptyWorld(): WorldDocument {
       fogColor: "#dfe7ef",
       fogDensity: 0.008,
       gridSize: 160,
+      sectorSize: 24,
     },
     prefabs: {},
     entities: [],
@@ -332,6 +335,7 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
   let animationControllerCount = 0;
   let combatantCount = 0;
   let interactiveCount = 0;
+  const occupiedSectors = new Set<string>();
 
   for (const entity of world.entities.map((item) => resolveEntity(world, item))) {
     if (entity.components.render) {
@@ -352,6 +356,7 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
     if (entity.components.physics) {
       physicsBodyCount += 1;
     }
+    occupiedSectors.add(sectorKeyForPoint(entity.transform.position, world.settings.sectorSize));
   }
 
   return {
@@ -366,5 +371,27 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
     animationControllerCount,
     combatantCount,
     interactiveCount,
+    occupiedSectorCount: occupiedSectors.size,
   };
+}
+
+export interface SectorCoord {
+  x: number;
+  z: number;
+}
+
+export function sectorCoordForPoint(point: Vec3, sectorSize: number): SectorCoord {
+  const safeSectorSize = Math.max(1, sectorSize);
+  return {
+    x: Math.floor(point.x / safeSectorSize),
+    z: Math.floor(point.z / safeSectorSize),
+  };
+}
+
+export function sectorKeyFromCoord(coord: SectorCoord): string {
+  return `${coord.x}:${coord.z}`;
+}
+
+export function sectorKeyForPoint(point: Vec3, sectorSize: number): string {
+  return sectorKeyFromCoord(sectorCoordForPoint(point, sectorSize));
 }
