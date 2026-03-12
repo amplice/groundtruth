@@ -125,7 +125,8 @@ button.secondary {
 
 textarea,
 pre,
-input {
+input,
+select {
   margin: 0;
   border-radius: 16px;
   border: 1px solid rgba(26, 44, 60, 0.12);
@@ -146,6 +147,11 @@ textarea {
 }
 
 input {
+  width: 100%;
+  padding: 0.8rem 0.95rem;
+}
+
+select {
   width: 100%;
   padding: 0.8rem 0.95rem;
 }

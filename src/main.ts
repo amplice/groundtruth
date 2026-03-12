@@ -103,7 +103,15 @@ async function bootstrap(): Promise<void> {
             </label>
             <label>
               <span>Prefab</span>
-              <input id="authoring-prefab" value="shack_building" />
+              <select id="authoring-prefab"></select>
+            </label>
+            <label>
+              <span>Place scale</span>
+              <input id="authoring-scale" type="number" step="0.1" value="1" />
+            </label>
+            <label>
+              <span>Place yaw deg</span>
+              <input id="authoring-yaw" type="number" step="15" value="0" />
             </label>
           </div>
           <div class="controls">
@@ -241,7 +249,9 @@ async function bootstrap(): Promise<void> {
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
   const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
-  const authoringPrefabInput = root.querySelector<HTMLInputElement>("#authoring-prefab");
+  const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
+  const authoringScaleInput = root.querySelector<HTMLInputElement>("#authoring-scale");
+  const authoringYawInput = root.querySelector<HTMLInputElement>("#authoring-yaw");
   const seedInput = root.querySelector<HTMLInputElement>("#world-seed");
   const sizeInput = root.querySelector<HTMLInputElement>("#world-size");
   const buildingInput = root.querySelector<HTMLInputElement>("#building-count");
@@ -274,6 +284,8 @@ async function bootstrap(): Promise<void> {
     !snapshotFileInput ||
     !authoringModeInput ||
     !authoringPrefabInput ||
+    !authoringScaleInput ||
+    !authoringYawInput ||
     !seedInput ||
     !sizeInput ||
     !buildingInput ||
@@ -398,6 +410,16 @@ async function bootstrap(): Promise<void> {
     authoringModeInput.value = authoringMode;
   };
 
+  const syncAuthoringPrefabs = (): void => {
+    const world = store.peekWorld();
+    const prefabIds = Object.keys(world.prefabs).sort();
+    const currentValue = authoringPrefabInput.value || prefabIds[0] || "";
+    authoringPrefabInput.innerHTML = prefabIds
+      .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(prefabId)}</option>`)
+      .join("");
+    authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0] ?? "";
+  };
+
   const placePrefabAt = (prefabId: string, x: number, z: number): void => {
     const prefab = store.peekWorld().prefabs[prefabId];
     if (!prefab) {
@@ -415,8 +437,12 @@ async function bootstrap(): Promise<void> {
           prefabId,
           transform: {
             position: makeVec3(x, inferPlacementHeight(prefabId), z),
-            rotation: makeVec3(0, 0, 0),
-            scale: makeVec3(1, 1, 1),
+            rotation: makeVec3(0, (readNumber(authoringYawInput.value, 0) * Math.PI) / 180, 0),
+            scale: makeVec3(
+              readNumber(authoringScaleInput.value, 1),
+              readNumber(authoringScaleInput.value, 1),
+              readNumber(authoringScaleInput.value, 1),
+            ),
           },
         },
       },
@@ -474,7 +500,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     if (authoringMode === "place") {
-      placePrefabAt(authoringPrefabInput.value.trim(), groundPick.point.x, groundPick.point.z);
+      placePrefabAt(authoringPrefabInput.value, groundPick.point.x, groundPick.point.z);
       return;
     }
     if (authoringMode === "move") {
@@ -521,7 +547,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value.trim()}`;
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedRuntimeDebug,
@@ -563,6 +589,7 @@ async function bootstrap(): Promise<void> {
       `Eval errors: ${evaluation.counts.error}`,
       `Module: ${runtimeModule.id}`,
     ].join(" | ");
+    syncAuthoringPrefabs();
   };
 
   const rebuildWorld = (): void => {
@@ -655,7 +682,7 @@ async function bootstrap(): Promise<void> {
   root.querySelector<HTMLButtonElement>("#mode-place")?.addEventListener("click", () => {
     authoringMode = "place";
     syncAuthoringMode();
-    appendEvent(`Authoring mode set to place '${authoringPrefabInput.value.trim()}'.`);
+    appendEvent(`Authoring mode set to place '${authoringPrefabInput.value}'.`);
   });
 
   root.querySelector<HTMLButtonElement>("#mode-move")?.addEventListener("click", () => {
@@ -769,6 +796,7 @@ async function bootstrap(): Promise<void> {
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
   syncSidebarState();
+  syncAuthoringPrefabs();
   syncAuthoringMode();
   syncModelTuningInputs(true);
 
