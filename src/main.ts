@@ -2,6 +2,7 @@ import "./styles.css";
 
 import { parseCommandScript } from "./core/commands";
 import { evaluateWorld } from "./core/evaluation";
+import { ModelRenderComponent, makeVec3, resolveEntity } from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
@@ -134,6 +135,30 @@ async function bootstrap(): Promise<void> {
         </section>
         <section class="section">
           <div class="section-head">
+            <h2>Model Tuning</h2>
+            <span>Selected model</span>
+          </div>
+          <div class="generation-grid">
+            <label>
+              <span>Scale</span>
+              <input id="model-scale" type="number" step="0.01" value="1" />
+            </label>
+            <label>
+              <span>Yaw deg</span>
+              <input id="model-yaw" type="number" step="1" value="0" />
+            </label>
+            <label>
+              <span>Offset Y</span>
+              <input id="model-offset-y" type="number" step="0.01" value="0" />
+            </label>
+          </div>
+          <div class="controls">
+            <button id="apply-model-tuning">Apply Tuning</button>
+            <button id="refresh-model-tuning" class="secondary">Load Selected</button>
+          </div>
+        </section>
+        <section class="section">
+          <div class="section-head">
             <h2>Selection</h2>
             <span>Entity JSON</span>
           </div>
@@ -181,6 +206,9 @@ async function bootstrap(): Promise<void> {
   const sessionNode = root.querySelector<HTMLElement>("#session");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
+  const modelScaleInput = root.querySelector<HTMLInputElement>("#model-scale");
+  const modelYawInput = root.querySelector<HTMLInputElement>("#model-yaw");
+  const modelOffsetYInput = root.querySelector<HTMLInputElement>("#model-offset-y");
   const selectionNode = root.querySelector<HTMLElement>("#selection");
   const issuesNode = root.querySelector<HTMLElement>("#issues");
   const eventLogNode = root.querySelector<HTMLElement>("#event-log");
@@ -208,6 +236,9 @@ async function bootstrap(): Promise<void> {
     !sessionNode ||
     !inspectorNode ||
     !assetStatusNode ||
+    !modelScaleInput ||
+    !modelYawInput ||
+    !modelOffsetYInput ||
     !selectionNode ||
     !issuesNode ||
     !eventLogNode ||
@@ -238,7 +269,9 @@ async function bootstrap(): Promise<void> {
   let lastFrameTime = performance.now();
   let sidebarCollapsed = false;
   let pendingWorldRebuild = false;
+  let worldSwapState: "idle" | "queued" | "rebuilding" | "failed" = "idle";
   let stressCooldownFrames = 0;
+  let modelTuningBoundEntityId: string | null = null;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
 
@@ -248,6 +281,84 @@ async function bootstrap(): Promise<void> {
     if (runtimeEvents.length > 40) {
       runtimeEvents.length = 40;
     }
+  };
+
+  const syncModelTuningInputs = (force = false): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!force && selectedEntityId === modelTuningBoundEntityId) {
+      return;
+    }
+    modelTuningBoundEntityId = selectedEntityId;
+    if (!selectedEntityId) {
+      modelScaleInput.value = "1";
+      modelYawInput.value = "0";
+      modelOffsetYInput.value = "0";
+      return;
+    }
+
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      return;
+    }
+    const resolved = resolveEntity(store.peekWorld(), entity);
+    const render = resolved.components.render;
+    if (!render || render.type !== "model") {
+      modelScaleInput.value = "1";
+      modelYawInput.value = "0";
+      modelOffsetYInput.value = "0";
+      return;
+    }
+
+    modelScaleInput.value = String(render.modelScale?.x ?? 1);
+    modelYawInput.value = String(((render.modelRotation?.y ?? 0) * 180) / Math.PI);
+    modelOffsetYInput.value = String(render.modelOffset?.y ?? 0);
+  };
+
+  const applySelectedModelTuning = (): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!selectedEntityId) {
+      appendEvent("Model tuning skipped: no selected entity.");
+      return;
+    }
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      appendEvent(`Model tuning skipped: missing entity '${selectedEntityId}'.`);
+      return;
+    }
+
+    const resolved = resolveEntity(store.peekWorld(), entity);
+    const render = resolved.components.render;
+    if (!render || render.type !== "model") {
+      appendEvent(`Model tuning skipped: '${selectedEntityId}' is not a model entity.`);
+      return;
+    }
+
+    const currentScale = render.modelScale ?? makeVec3(1, 1, 1);
+    const currentOffset = render.modelOffset ?? makeVec3(0, 0, 0);
+    const nextScale = readNumber(modelScaleInput.value, currentScale.x);
+    const nextOffsetY = readNumber(modelOffsetYInput.value, currentOffset.y);
+    const nextYawDegrees = readNumber(modelYawInput.value, (render.modelRotation?.y ?? 0) * (180 / Math.PI));
+    const nextRender: ModelRenderComponent = {
+      ...render,
+      modelScale: makeVec3(
+        nextScale,
+        nextScale,
+        nextScale,
+      ),
+      modelOffset: makeVec3(
+        currentOffset.x,
+        nextOffsetY,
+        currentOffset.z,
+      ),
+      modelRotation: {
+        x: render.modelRotation?.x ?? 0,
+        y: (nextYawDegrees * Math.PI) / 180,
+        z: render.modelRotation?.z ?? 0,
+      },
+    };
+
+    store.updateEntityComponents(selectedEntityId, { render: nextRender }, true);
+    appendEvent(`Applied model tuning to '${selectedEntityId}'.`);
   };
 
   commandScript.value = exampleCommandScript;
@@ -319,6 +430,7 @@ async function bootstrap(): Promise<void> {
     const renderStats = scene.getStats();
     runtimeStatsNode.textContent = [
       `Mode: ${world.gameMode}`,
+      `Swap: ${worldSwapState}`,
       `Draw calls: ${renderStats.drawCalls}`,
       `Triangles: ${renderStats.triangleCount}`,
       `Objects: ${renderStats.objectCount}`,
@@ -334,12 +446,15 @@ async function bootstrap(): Promise<void> {
   const rebuildWorld = (): void => {
     const world = store.getWorld();
     try {
-      scene.setWorld(world);
+      worldSwapState = "rebuilding";
       physics.syncWorld(world);
+      scene.setWorld(world);
+      worldSwapState = "idle";
       appendEvent(`World rebuilt: ${world.metadata.id}`);
       refreshSidebar();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      worldSwapState = "failed";
       appendEvent(`World rebuild failed: ${message}`);
       issuesNode.textContent = `World rebuild failed: ${message}`;
     }
@@ -387,10 +502,12 @@ async function bootstrap(): Promise<void> {
   store.subscribe((event) => {
     if (event === "world") {
       pendingWorldRebuild = true;
+      worldSwapState = "queued";
       appendEvent(`Store event: world -> ${store.peekWorld().metadata.id}`);
       return;
     }
     appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? "none"}`);
+    syncModelTuningInputs();
     refreshSidebar();
   });
   pendingWorldRebuild = true;
@@ -423,6 +540,15 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#stress-world")?.addEventListener("click", () => {
     enqueueStressTest();
+  });
+
+  root.querySelector<HTMLButtonElement>("#apply-model-tuning")?.addEventListener("click", () => {
+    applySelectedModelTuning();
+  });
+
+  root.querySelector<HTMLButtonElement>("#refresh-model-tuning")?.addEventListener("click", () => {
+    syncModelTuningInputs(true);
+    appendEvent("Loaded model tuning from selected entity.");
   });
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
@@ -497,6 +623,7 @@ async function bootstrap(): Promise<void> {
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
   syncSidebarState();
+  syncModelTuningInputs(true);
 
   const animate = (): void => {
     const now = performance.now();
@@ -512,6 +639,12 @@ async function bootstrap(): Promise<void> {
     if (pendingWorldRebuild) {
       pendingWorldRebuild = false;
       rebuildWorld();
+    }
+    if (worldSwapState === "failed") {
+      scene.renderFrame(dtSeconds);
+      refreshSidebar();
+      requestAnimationFrame(animate);
+      return;
     }
     try {
       runtimeModule.update(dtSeconds, {
@@ -541,6 +674,11 @@ function parseNumber(source: string, fallback: number, minimum: number): number 
     return fallback;
   }
   return Math.max(minimum, value);
+}
+
+function readNumber(source: string, fallback: number): number {
+  const value = Number.parseFloat(source);
+  return Number.isFinite(value) ? value : fallback;
 }
 
 function downloadJson(filename: string, data: unknown): void {

@@ -716,6 +716,13 @@ export class SceneRuntime {
         render.modelOffset.z,
       );
     }
+    if (render.modelRotation) {
+      object.rotation.set(
+        render.modelRotation.x,
+        render.modelRotation.y,
+        render.modelRotation.z,
+      );
+    }
   }
 
   private applyAnimationState(

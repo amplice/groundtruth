@@ -54,6 +54,7 @@ export interface ModelRenderComponent {
   animationSources?: Record<string, string>;
   modelScale?: Vec3;
   modelOffset?: Vec3;
+  modelRotation?: Rotation3;
 }
 
 export type RenderComponent = PrimitiveRenderComponent | ModelRenderComponent;
