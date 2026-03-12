@@ -136,6 +136,7 @@ async function bootstrap(): Promise<void> {
               <input id="authoring-zone-size" type="number" step="1" value="10" />
             </label>
           </div>
+          <div id="authoring-palette" class="prefab-palette"></div>
           <div class="controls">
             <button id="mode-play" class="secondary">Play</button>
             <button id="mode-place" class="secondary">Place</button>
@@ -284,6 +285,7 @@ async function bootstrap(): Promise<void> {
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
   const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
+  const authoringPaletteNode = root.querySelector<HTMLElement>("#authoring-palette");
   const sceneSearchInput = root.querySelector<HTMLInputElement>("#scene-search");
   const sceneFilterInput = root.querySelector<HTMLSelectElement>("#scene-filter");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
@@ -324,6 +326,7 @@ async function bootstrap(): Promise<void> {
     !evaluationNode ||
     !sessionNode ||
     !sceneInventoryNode ||
+    !authoringPaletteNode ||
     !sceneSearchInput ||
     !sceneFilterInput ||
     !inspectorNode ||
@@ -612,6 +615,7 @@ async function bootstrap(): Promise<void> {
       .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(prefabId)}</option>`)
       .join("");
     authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0] ?? "";
+    authoringPaletteNode.innerHTML = renderPrefabPalette(world, authoringPrefabInput.value);
   };
 
   const placePrefabAt = (prefabId: string, x: number, z: number): void => {
@@ -1094,6 +1098,25 @@ async function bootstrap(): Promise<void> {
     }
   });
 
+  authoringPaletteNode.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const button = target.closest<HTMLElement>("[data-palette-prefab]");
+    if (!button) {
+      return;
+    }
+    const prefabId = button.dataset.palettePrefab;
+    if (!prefabId) {
+      return;
+    }
+    authoringPrefabInput.value = prefabId;
+    syncAuthoringPrefabs();
+    appendEvent(`Authoring palette selected prefab '${prefabId}'.`);
+    refreshSidebar();
+  });
+
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
   canvasRoot.addEventListener("pointermove", handleCanvasAuthoringMove);
   canvasRoot.addEventListener("pointerup", stopAuthoringDrag);
@@ -1438,15 +1461,67 @@ function renderSceneInventory(
     .join("");
 
   return `
-    <div class="inventory-group">
-      <div class="inventory-group-title">Entities (${world.entities.length})</div>
-      ${entityItems || '<div class="inventory-empty">No entities.</div>'}
-    </div>
-    <div class="inventory-group">
-      <div class="inventory-group-title">Zones (${world.zones.length})</div>
-      ${zoneItems || '<div class="inventory-empty">No zones.</div>'}
-    </div>
+    <details class="inventory-group" open>
+      <summary class="inventory-group-title">Entities (${world.entities.length})</summary>
+      <div class="inventory-group-body">
+        ${entityItems || '<div class="inventory-empty">No entities.</div>'}
+      </div>
+    </details>
+    <details class="inventory-group" open>
+      <summary class="inventory-group-title">Zones (${world.zones.length})</summary>
+      <div class="inventory-group-body">
+        ${zoneItems || '<div class="inventory-empty">No zones.</div>'}
+      </div>
+    </details>
   `;
+}
+
+function renderPrefabPalette(
+  world: ReturnType<WorldStore["getWorld"]>,
+  selectedPrefabId: string,
+): string {
+  const groups = new Map<string, string[]>();
+  for (const prefabId of Object.keys(world.prefabs).sort()) {
+    const group = categorizePrefab(prefabId);
+    const bucket = groups.get(group) ?? [];
+    bucket.push(prefabId);
+    groups.set(group, bucket);
+  }
+
+  return Array.from(groups.entries())
+    .map(([group, prefabIds]) => `
+      <details class="palette-group" open>
+        <summary class="palette-group-title">${escapeHtml(group)}</summary>
+        <div class="palette-chip-grid">
+          ${prefabIds
+            .map((prefabId) => `
+              <button
+                type="button"
+                class="palette-chip${prefabId === selectedPrefabId ? " selected" : ""}"
+                data-palette-prefab="${escapeHtml(prefabId)}"
+              >
+                ${escapeHtml(world.prefabs[prefabId]?.name ?? prefabId)}
+              </button>
+            `)
+            .join("")}
+        </div>
+      </details>
+    `)
+    .join("");
+}
+
+function categorizePrefab(prefabId: string): string {
+  const normalized = prefabId.toLowerCase();
+  if (normalized.includes("player") || normalized.includes("zombie") || normalized.includes("npc")) {
+    return "Actors";
+  }
+  if (normalized.includes("building") || normalized.includes("house") || normalized.includes("shack") || normalized.includes("warehouse")) {
+    return "Buildings";
+  }
+  if (normalized.includes("crate") || normalized.includes("loot") || normalized.includes("item")) {
+    return "Loot";
+  }
+  return "Other";
 }
 
 function formatAssetReports(
