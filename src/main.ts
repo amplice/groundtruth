@@ -2,7 +2,7 @@ import "./styles.css";
 
 import { parseCommandScript } from "./core/commands";
 import { evaluateWorld } from "./core/evaluation";
-import { ModelRenderComponent, makeVec3, resolveEntity } from "./core/schema";
+import { ModelRenderComponent, ZoneSpec, makeVec3, resolveEntity } from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
@@ -13,7 +13,7 @@ import { WorldStore } from "./core/worldStore";
 import { ThirdPersonSurvivalModule } from "./modules/thirdPersonSurvival";
 import { InputController } from "./runtime/input";
 import { PhysicsRuntime } from "./runtime/physicsRuntime";
-import { SceneRuntime } from "./runtime/sceneRuntime";
+import { SceneRuntime, SelectionTarget } from "./runtime/sceneRuntime";
 
 async function bootstrap(): Promise<void> {
   const root = document.querySelector<HTMLDivElement>("#app");
@@ -175,6 +175,13 @@ async function bootstrap(): Promise<void> {
         </section>
         <section class="section">
           <div class="section-head">
+            <h2>Scene</h2>
+            <span>Entities and zones</span>
+          </div>
+          <div id="scene-inventory" class="scene-inventory"></div>
+        </section>
+        <section class="section">
+          <div class="section-head">
             <h2>Inspector</h2>
             <span>Selected entity</span>
           </div>
@@ -258,6 +265,7 @@ async function bootstrap(): Promise<void> {
   const diagnosticsNode = root.querySelector<HTMLElement>("#diagnostics");
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
+  const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
   const modelScaleInput = root.querySelector<HTMLInputElement>("#model-scale");
@@ -295,6 +303,7 @@ async function bootstrap(): Promise<void> {
     !diagnosticsNode ||
     !evaluationNode ||
     !sessionNode ||
+    !sceneInventoryNode ||
     !inspectorNode ||
     !assetStatusNode ||
     !modelScaleInput ||
@@ -331,11 +340,20 @@ async function bootstrap(): Promise<void> {
 
   const store = new WorldStore(makeFlatOutpostWorld());
   let authoringMode: "play" | "place" | "move" | "zone" = "play";
-  const scene = new SceneRuntime(canvasRoot, (entityId) => {
+  const scene = new SceneRuntime(canvasRoot, (selection: SelectionTarget) => {
     if (authoringMode !== "play") {
       return;
     }
-    store.selectEntity(entityId);
+    if (selection.type === "entity") {
+      selectEntity(selection.id);
+      return;
+    }
+    if (selection.type === "zone") {
+      selectZone(selection.id);
+      appendEvent(`Viewport selected zone '${selection.id}'.`);
+      return;
+    }
+    selectEntity(null);
   });
   const physics = await PhysicsRuntime.create(store.getWorld().settings.gravity.y);
   const input = new InputController();
@@ -347,9 +365,11 @@ async function bootstrap(): Promise<void> {
   let stressCooldownFrames = 0;
   let modelTuningBoundEntityId: string | null = null;
   let selectedTransformBoundEntityId: string | null = null;
+  let selectedZoneBoundZoneId: string | null = null;
   let placedEntityCounter = 1;
   let placedZoneCounter = 1;
   let moveDragActive = false;
+  let selectedZoneId: string | null = null;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
 
@@ -358,6 +378,31 @@ async function bootstrap(): Promise<void> {
     runtimeEvents.unshift(line);
     if (runtimeEvents.length > 40) {
       runtimeEvents.length = 40;
+    }
+  };
+
+  const getSelectedZone = (world = store.peekWorld()) =>
+    selectedZoneId ? world.zones.find((zone) => zone.id === selectedZoneId) ?? null : null;
+
+  const selectEntity = (entityId: string | null): void => {
+    selectedZoneId = null;
+    store.selectEntity(entityId);
+  };
+
+  const selectZone = (zoneId: string | null): void => {
+    selectedZoneId = zoneId;
+    if (store.getSelectedEntityId() !== null) {
+      store.selectEntity(null);
+      return;
+    }
+    syncSelectedZoneInputs();
+    refreshSidebar();
+  };
+
+  const ensureValidSelection = (): void => {
+    const world = store.peekWorld();
+    if (selectedZoneId && !world.zones.some((zone) => zone.id === selectedZoneId)) {
+      selectedZoneId = null;
     }
   };
 
@@ -411,6 +456,21 @@ async function bootstrap(): Promise<void> {
     authoringYawInput.value = String(((resolved.transform.rotation?.y ?? 0) * 180) / Math.PI);
   };
 
+  const syncSelectedZoneInputs = (force = false): void => {
+    if (!force && selectedZoneId === selectedZoneBoundZoneId) {
+      return;
+    }
+    selectedZoneBoundZoneId = selectedZoneId;
+    const zone = getSelectedZone();
+    if (!zone) {
+      return;
+    }
+
+    authoringZoneKindInput.value = zone.kind;
+    authoringZoneShapeInput.value = zone.shape.type;
+    authoringZoneSizeInput.value = String(zone.shape.type === "sphere" ? zone.shape.radius : zone.shape.size.x);
+  };
+
   const applySelectedModelTuning = (): void => {
     const selectedEntityId = store.getSelectedEntityId();
     if (!selectedEntityId) {
@@ -460,8 +520,36 @@ async function bootstrap(): Promise<void> {
 
   const applySelectedEntityTransform = (): void => {
     const selectedEntityId = store.getSelectedEntityId();
+    const selectedZone = getSelectedZone();
+    if (!selectedEntityId && !selectedZone) {
+      appendEvent("Transform apply skipped: no selected entity or zone.");
+      return;
+    }
+    if (selectedZone) {
+      const size = Math.max(1, readNumber(authoringZoneSizeInput.value, selectedZone.shape.type === "sphere" ? selectedZone.shape.radius : selectedZone.shape.size.x));
+      store.apply([
+        {
+          op: "define_zone",
+          zone: {
+            ...selectedZone,
+            kind: authoringZoneKindInput.value as "spawn" | "loot" | "safe" | "encounter" | "objective" | "trigger",
+            shape:
+              authoringZoneShapeInput.value === "sphere"
+                ? {
+                    type: "sphere",
+                    radius: size,
+                  }
+                : {
+                    type: "box",
+                    size: makeVec3(size, selectedZone.shape.type === "box" ? selectedZone.shape.size.y : 2, size),
+                  },
+          },
+        },
+      ]);
+      appendEvent(`Applied zone settings to '${selectedZone.id}'.`);
+      return;
+    }
     if (!selectedEntityId) {
-      appendEvent("Transform apply skipped: no selected entity.");
       return;
     }
     const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
@@ -530,14 +618,38 @@ async function bootstrap(): Promise<void> {
         },
       },
     ]);
-    store.selectEntity(entityId);
+    selectEntity(entityId);
     appendEvent(`Placed '${prefabId}' at (${x.toFixed(1)}, ${z.toFixed(1)}).`);
   };
 
   const moveSelectedEntityTo = (x: number, z: number): void => {
     const selectedEntityId = store.getSelectedEntityId();
+    const selectedZone = getSelectedZone();
+    if (!selectedEntityId && !selectedZone) {
+      appendEvent("Move skipped: no selected entity or zone.");
+      return;
+    }
+    if (selectedZone) {
+      store.apply([
+        {
+          op: "define_zone",
+          zone: {
+            ...selectedZone,
+            transform: {
+              ...selectedZone.transform,
+              position: {
+                ...selectedZone.transform.position,
+                x,
+                z,
+              },
+            },
+          },
+        },
+      ]);
+      appendEvent(`Moved zone '${selectedZone.id}' to (${x.toFixed(1)}, ${z.toFixed(1)}).`);
+      return;
+    }
     if (!selectedEntityId) {
-      appendEvent("Move skipped: no selected entity.");
       return;
     }
     const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
@@ -561,12 +673,20 @@ async function bootstrap(): Promise<void> {
 
   const deleteSelectedEntity = (): void => {
     const selectedEntityId = store.getSelectedEntityId();
+    const selectedZone = getSelectedZone();
+    if (selectedZone) {
+      store.apply([{ op: "delete_zone", zoneId: selectedZone.id }]);
+      selectedZoneId = null;
+      refreshSidebar();
+      appendEvent(`Deleted zone '${selectedZone.id}'.`);
+      return;
+    }
     if (!selectedEntityId || selectedEntityId === "player" || selectedEntityId === "ground") {
       appendEvent("Delete skipped: select a non-core entity.");
       return;
     }
     store.apply([{ op: "delete_entity", entityId: selectedEntityId }]);
-    store.selectEntity(null);
+    selectEntity(null);
     appendEvent(`Deleted '${selectedEntityId}'.`);
   };
 
@@ -597,6 +717,7 @@ async function bootstrap(): Promise<void> {
         },
       },
     ]);
+    selectZone(zoneId);
     appendEvent(`Placed ${authoringZoneKindInput.value} zone at (${x.toFixed(1)}, ${z.toFixed(1)}).`);
   };
 
@@ -661,6 +782,7 @@ async function bootstrap(): Promise<void> {
     const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
     const moduleEvents = runtimeModule.getRecentEvents?.() ?? [];
     const selectedEntityId = store.getSelectedEntityId();
+    const selectedZone = getSelectedZone(world);
     const selectedRuntimeDebug = selectedEntityId
       ? runtimeModule.getEntityDebug?.(world, selectedEntityId) ?? []
       : [];
@@ -685,13 +807,15 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}`;
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
+      selectedZone,
       selectedRuntimeDebug,
       selectedVisualDebug,
       selectedPhysicsDebug,
     );
+    sceneInventoryNode.innerHTML = renderSceneInventory(world, selectedEntityId, selectedZone?.id ?? null);
     assetStatusNode.textContent = formatAssetReports(assetReports);
     playtestHud.innerHTML = renderHud(
       runtimeModule.getStatusLines?.() ?? [],
@@ -702,7 +826,9 @@ async function bootstrap(): Promise<void> {
         ...playerVisualDebug,
       ],
     );
-    selectionNode.textContent = store.getSelectedEntityJson();
+    selectionNode.textContent = selectedZone
+      ? JSON.stringify(selectedZone, null, 2)
+      : store.getSelectedEntityJson();
     eventLogNode.textContent = [...moduleEvents, ...runtimeEvents].slice(0, 40).join("\n") || "No runtime events yet.";
     issuesNode.textContent =
       [
@@ -728,6 +854,7 @@ async function bootstrap(): Promise<void> {
       `Module: ${runtimeModule.id}`,
     ].join(" | ");
     syncAuthoringPrefabs();
+    syncSelectedZoneInputs();
   };
 
   const rebuildWorld = (): void => {
@@ -788,14 +915,20 @@ async function bootstrap(): Promise<void> {
 
   store.subscribe((event) => {
     if (event === "world") {
+      ensureValidSelection();
+      const selectedEntityId = store.getSelectedEntityId();
+      if (selectedEntityId && !store.peekWorld().entities.some((entity) => entity.id === selectedEntityId)) {
+        selectEntity(null);
+      }
       pendingWorldRebuild = true;
       worldSwapState = "queued";
       appendEvent(`Store event: world -> ${store.peekWorld().metadata.id}`);
       return;
     }
-    appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? "none"}`);
+    appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? selectedZoneId ?? "none"}`);
     syncModelTuningInputs();
     syncSelectedTransformInputs();
+    syncSelectedZoneInputs();
     refreshSidebar();
   });
   pendingWorldRebuild = true;
@@ -842,6 +975,28 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#delete-selected")?.addEventListener("click", () => {
     deleteSelectedEntity();
+  });
+
+  sceneInventoryNode.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const button = target.closest<HTMLElement>("[data-select-entity], [data-select-zone]");
+    if (!button) {
+      return;
+    }
+    const entityId = button.dataset.selectEntity;
+    if (entityId !== undefined) {
+      selectEntity(entityId || null);
+      appendEvent(`Scene inventory selected entity '${entityId}'.`);
+      return;
+    }
+    const zoneId = button.dataset.selectZone;
+    if (zoneId !== undefined) {
+      selectZone(zoneId || null);
+      appendEvent(`Scene inventory selected zone '${zoneId}'.`);
+    }
   });
 
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
@@ -952,6 +1107,7 @@ async function bootstrap(): Promise<void> {
   syncAuthoringMode();
   syncModelTuningInputs(true);
   syncSelectedTransformInputs(true);
+  syncSelectedZoneInputs(true);
 
   const animate = (): void => {
     const now = performance.now();
@@ -1084,12 +1240,26 @@ function formatEvaluation(
 
 function formatInspector(
   entityId: string | null,
+  zone: ZoneSpec | null,
   runtimeLines: string[],
   visualLines: string[],
   physicsLines: string[],
 ): string {
-  if (!entityId) {
-    return "No entity selected.";
+  if (!entityId && !zone) {
+    return "No entity or zone selected.";
+  }
+
+  if (zone) {
+    const shapeSummary = zone.shape.type === "sphere"
+      ? `sphere radius=${zone.shape.radius}`
+      : `box size=${zone.shape.size.x}x${zone.shape.size.y}x${zone.shape.size.z}`;
+    return [
+      `Zone: ${zone.id}`,
+      `Kind: ${zone.kind}`,
+      `Shape: ${shapeSummary}`,
+      `Position: ${zone.transform.position.x.toFixed(2)}, ${zone.transform.position.y.toFixed(2)}, ${zone.transform.position.z.toFixed(2)}`,
+      `Tags: ${(zone.tags ?? []).join(", ") || "none"}`,
+    ].join("\n");
   }
 
   return [
@@ -1098,6 +1268,63 @@ function formatInspector(
     ...visualLines,
     ...physicsLines,
   ].join("\n");
+}
+
+function renderSceneInventory(
+  world: ReturnType<WorldStore["getWorld"]>,
+  selectedEntityId: string | null,
+  selectedZoneId: string | null,
+): string {
+  const entityItems = world.entities
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((entity) => {
+      const isSelected = entity.id === selectedEntityId;
+      const label = entity.prefabId ? `${entity.name} (${entity.prefabId})` : entity.name;
+      return `
+        <button
+          type="button"
+          class="inventory-item${isSelected ? " selected" : ""}"
+          data-select-entity="${escapeHtml(entity.id)}"
+        >
+          <span class="inventory-label">${escapeHtml(label)}</span>
+          <span class="inventory-meta">${escapeHtml(entity.id)}</span>
+        </button>
+      `;
+    })
+    .join("");
+
+  const zoneItems = world.zones
+    .slice()
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .map((zone) => {
+      const isSelected = zone.id === selectedZoneId;
+      const shapeLabel = zone.shape.type === "sphere"
+        ? `r=${zone.shape.radius}`
+        : `${zone.shape.size.x}x${zone.shape.size.z}`;
+      return `
+        <button
+          type="button"
+          class="inventory-item${isSelected ? " selected" : ""}"
+          data-select-zone="${escapeHtml(zone.id)}"
+        >
+          <span class="inventory-label">${escapeHtml(zone.name)}</span>
+          <span class="inventory-meta">${escapeHtml(`${zone.kind} | ${shapeLabel}`)}</span>
+        </button>
+      `;
+    })
+    .join("");
+
+  return `
+    <div class="inventory-group">
+      <div class="inventory-group-title">Entities (${world.entities.length})</div>
+      ${entityItems || '<div class="inventory-empty">No entities.</div>'}
+    </div>
+    <div class="inventory-group">
+      <div class="inventory-group-title">Zones (${world.zones.length})</div>
+      ${zoneItems || '<div class="inventory-empty">No zones.</div>'}
+    </div>
+  `;
 }
 
 function formatAssetReports(

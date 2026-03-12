@@ -161,6 +161,66 @@ pre {
   min-height: 110px;
 }
 
+.scene-inventory {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.inventory-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.inventory-group-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #586d7f;
+}
+
+.inventory-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  width: 100%;
+  border-radius: 16px;
+  padding: 0.7rem 0.85rem;
+  background: rgba(255, 255, 255, 0.7);
+  color: #183445;
+  border: 1px solid rgba(26, 44, 60, 0.1);
+}
+
+.inventory-item.selected {
+  background: #17354b;
+  color: #f4f7fa;
+}
+
+.inventory-label {
+  font-size: 0.84rem;
+  font-weight: 700;
+}
+
+.inventory-meta {
+  font-family:
+    "IBM Plex Mono",
+    "Cascadia Code",
+    monospace;
+  font-size: 0.72rem;
+  opacity: 0.76;
+}
+
+.inventory-empty {
+  border-radius: 16px;
+  border: 1px dashed rgba(26, 44, 60, 0.14);
+  padding: 0.7rem 0.85rem;
+  color: #64788a;
+  font-size: 0.8rem;
+}
+
 .generation-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

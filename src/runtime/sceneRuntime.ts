@@ -73,6 +73,11 @@ export interface GroundPickResult {
   point: { x: number; y: number; z: number };
 }
 
+export interface SelectionTarget {
+  type: "entity" | "zone" | "none";
+  id: string | null;
+}
+
 export class SceneRuntime {
   private readonly renderer: THREE.WebGLRenderer;
 
@@ -117,9 +122,11 @@ export class SceneRuntime {
 
   private selectedEntityId: string | null = null;
 
+  private selectedZoneId: string | null = null;
+
   constructor(
     private readonly mount: HTMLElement,
-    private readonly onSelect: (entityId: string | null) => void,
+    private readonly onSelect: (selection: SelectionTarget) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({
       antialias: true,
@@ -186,7 +193,7 @@ export class SceneRuntime {
       this.zoneGroup.add(this.buildZoneObject(zone));
     }
 
-    this.setSelection(this.selectedEntityId);
+    this.setSelection(this.selectedEntityId, this.selectedZoneId);
   }
 
   setDebugOptions(options: Partial<SceneDebugOptions>): void {
@@ -552,6 +559,7 @@ export class SceneRuntime {
       zone.kind === "safe" ? 0x2e8b57 : zone.kind === "spawn" ? 0xa94442 : 0xb38b2f;
 
     if (zone.shape.type === "box") {
+      const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.72 });
       const object = new THREE.LineSegments(
         new THREE.EdgesGeometry(
           new THREE.BoxGeometry(
@@ -560,8 +568,10 @@ export class SceneRuntime {
             zone.shape.size.z,
           ),
         ),
-        new THREE.LineBasicMaterial({ color }),
+        material,
       );
+      object.userData.zoneId = zone.id;
+      object.userData.baseColor = color;
       object.position.set(
         zone.transform.position.x,
         zone.transform.position.y,
@@ -570,12 +580,15 @@ export class SceneRuntime {
       return object;
     }
 
+    const material = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.72 });
     const object = new THREE.LineSegments(
       new THREE.EdgesGeometry(
         new THREE.SphereGeometry(zone.shape.radius, 16, 12),
       ),
-      new THREE.LineBasicMaterial({ color }),
+      material,
     );
+    object.userData.zoneId = zone.id;
+    object.userData.baseColor = color;
     object.position.set(
       zone.transform.position.x,
       zone.transform.position.y,
@@ -806,8 +819,9 @@ export class SceneRuntime {
     binding.loopMode = animation.loop ?? "repeat";
   }
 
-  private setSelection(entityId: string | null): void {
+  private setSelection(entityId: string | null, zoneId: string | null = null): void {
     this.selectedEntityId = entityId;
+    this.selectedZoneId = zoneId;
     for (const [id, object] of this.entityMap) {
       object.traverse((node) => {
         const mesh = node as THREE.Mesh;
@@ -817,6 +831,17 @@ export class SceneRuntime {
         if (mesh.material instanceof THREE.MeshStandardMaterial) {
           mesh.material.emissive.set(id === entityId ? "#2d3640" : "#000000");
         }
+      });
+    }
+    for (const object of this.zoneGroup.children) {
+      object.traverse((node) => {
+        const line = node as THREE.LineSegments;
+        if (!(line.material instanceof THREE.LineBasicMaterial)) {
+          return;
+        }
+        const isSelected = node.userData.zoneId === zoneId || object.userData.zoneId === zoneId;
+        line.material.color.setHex(isSelected ? 0xf6f1c1 : (object.userData.baseColor as number | undefined) ?? 0xb38b2f);
+        line.material.opacity = isSelected ? 1 : 0.72;
       });
     }
   }
@@ -829,8 +854,16 @@ export class SceneRuntime {
     const intersections = this.raycaster.intersectObjects(this.entityGroup.children, true);
     const hit = intersections.find((item) => item.object.userData.entityId);
     const entityId = hit?.object.userData.entityId ?? null;
-    this.setSelection(entityId);
-    this.onSelect(entityId);
+    if (entityId) {
+      this.setSelection(entityId, null);
+      this.onSelect({ type: "entity", id: entityId });
+      return;
+    }
+    const zoneIntersections = this.raycaster.intersectObjects(this.zoneGroup.children, true);
+    const zoneHit = zoneIntersections.find((item) => item.object.userData.zoneId || item.object.parent?.userData.zoneId);
+    const zoneId = zoneHit?.object.userData.zoneId ?? zoneHit?.object.parent?.userData.zoneId ?? null;
+    this.setSelection(null, zoneId);
+    this.onSelect(zoneId ? { type: "zone", id: zoneId } : { type: "none", id: null });
   };
 
   private readonly handleResize = (): void => {
