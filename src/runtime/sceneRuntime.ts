@@ -270,6 +270,10 @@ export class SceneRuntime {
     this.handleResize();
   }
 
+  setOrbitEnabled(enabled: boolean): void {
+    this.controls.enabled = enabled;
+  }
+
   getAnimationDuration(entityId: string, state: string): number | null {
     const binding = this.animationBindings.get(entityId);
     if (!binding) {

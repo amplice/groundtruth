@@ -141,6 +141,7 @@ async function bootstrap(): Promise<void> {
             <button id="mode-place" class="secondary">Place</button>
             <button id="mode-move" class="secondary">Move</button>
             <button id="mode-zone" class="secondary">Zone</button>
+            <button id="apply-selected-transform" class="secondary">Apply To Selected</button>
             <button id="delete-selected" class="secondary">Delete Selected</button>
           </div>
         </section>
@@ -345,8 +346,10 @@ async function bootstrap(): Promise<void> {
   let worldSwapState: "idle" | "queued" | "rebuilding" | "failed" = "idle";
   let stressCooldownFrames = 0;
   let modelTuningBoundEntityId: string | null = null;
+  let selectedTransformBoundEntityId: string | null = null;
   let placedEntityCounter = 1;
   let placedZoneCounter = 1;
+  let moveDragActive = false;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
 
@@ -387,6 +390,25 @@ async function bootstrap(): Promise<void> {
     modelScaleInput.value = String(render.modelScale?.x ?? 1);
     modelYawInput.value = String(((render.modelRotation?.y ?? 0) * 180) / Math.PI);
     modelOffsetYInput.value = String(render.modelOffset?.y ?? 0);
+  };
+
+  const syncSelectedTransformInputs = (force = false): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!force && selectedEntityId === selectedTransformBoundEntityId) {
+      return;
+    }
+    selectedTransformBoundEntityId = selectedEntityId;
+    if (!selectedEntityId) {
+      return;
+    }
+
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      return;
+    }
+    const resolved = resolveEntity(store.peekWorld(), entity);
+    authoringScaleInput.value = String(resolved.transform.scale?.x ?? 1);
+    authoringYawInput.value = String(((resolved.transform.rotation?.y ?? 0) * 180) / Math.PI);
   };
 
   const applySelectedModelTuning = (): void => {
@@ -436,8 +458,39 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Applied model tuning to '${selectedEntityId}'.`);
   };
 
+  const applySelectedEntityTransform = (): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!selectedEntityId) {
+      appendEvent("Transform apply skipped: no selected entity.");
+      return;
+    }
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      appendEvent(`Transform apply skipped: missing entity '${selectedEntityId}'.`);
+      return;
+    }
+    const scale = readNumber(authoringScaleInput.value, entity.transform.scale?.x ?? 1);
+    const yawDegrees = readNumber(authoringYawInput.value, ((entity.transform.rotation?.y ?? 0) * 180) / Math.PI);
+    store.updateEntityTransform(
+      selectedEntityId,
+      {
+        rotation: makeVec3(
+          entity.transform.rotation?.x ?? 0,
+          (yawDegrees * Math.PI) / 180,
+          entity.transform.rotation?.z ?? 0,
+        ),
+        scale: makeVec3(scale, scale, scale),
+      },
+      true,
+    );
+    appendEvent(`Applied transform to '${selectedEntityId}'.`);
+  };
+
   const syncAuthoringMode = (): void => {
     authoringModeInput.value = authoringMode;
+    if (authoringMode !== "move") {
+      stopMoveDrag();
+    }
   };
 
   const syncAuthoringPrefabs = (): void => {
@@ -564,12 +617,33 @@ async function bootstrap(): Promise<void> {
       return;
     }
     if (authoringMode === "move") {
+      moveDragActive = true;
+      scene.setOrbitEnabled(false);
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
       return;
     }
     if (authoringMode === "zone") {
       placeZoneAt(groundPick.point.x, groundPick.point.z);
     }
+  };
+
+  const handleCanvasAuthoringMove = (event: PointerEvent): void => {
+    if (!moveDragActive || authoringMode !== "move") {
+      return;
+    }
+    const groundPick = scene.screenPointToGround(event.clientX, event.clientY);
+    if (!groundPick) {
+      return;
+    }
+    moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
+  };
+
+  const stopMoveDrag = (): void => {
+    if (!moveDragActive) {
+      return;
+    }
+    moveDragActive = false;
+    scene.setOrbitEnabled(true);
   };
 
   commandScript.value = exampleCommandScript;
@@ -611,7 +685,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}`;
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedRuntimeDebug,
@@ -721,6 +795,7 @@ async function bootstrap(): Promise<void> {
     }
     appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? "none"}`);
     syncModelTuningInputs();
+    syncSelectedTransformInputs();
     refreshSidebar();
   });
   pendingWorldRebuild = true;
@@ -761,11 +836,18 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Authoring mode set to zone '${authoringZoneKindInput.value}'.`);
   });
 
+  root.querySelector<HTMLButtonElement>("#apply-selected-transform")?.addEventListener("click", () => {
+    applySelectedEntityTransform();
+  });
+
   root.querySelector<HTMLButtonElement>("#delete-selected")?.addEventListener("click", () => {
     deleteSelectedEntity();
   });
 
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
+  canvasRoot.addEventListener("pointermove", handleCanvasAuthoringMove);
+  canvasRoot.addEventListener("pointerup", stopMoveDrag);
+  canvasRoot.addEventListener("pointerleave", stopMoveDrag);
 
   root.querySelector<HTMLButtonElement>("#load-generated")?.addEventListener("click", () => {
     buildGeneratedWorld();
@@ -869,6 +951,7 @@ async function bootstrap(): Promise<void> {
   syncAuthoringPrefabs();
   syncAuthoringMode();
   syncModelTuningInputs(true);
+  syncSelectedTransformInputs(true);
 
   const animate = (): void => {
     const now = performance.now();
