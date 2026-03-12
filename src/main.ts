@@ -113,11 +113,34 @@ async function bootstrap(): Promise<void> {
               <span>Place yaw deg</span>
               <input id="authoring-yaw" type="number" step="15" value="0" />
             </label>
+            <label>
+              <span>Zone kind</span>
+              <select id="authoring-zone-kind">
+                <option value="spawn">spawn</option>
+                <option value="safe">safe</option>
+                <option value="loot">loot</option>
+                <option value="encounter">encounter</option>
+                <option value="objective">objective</option>
+                <option value="trigger">trigger</option>
+              </select>
+            </label>
+            <label>
+              <span>Zone shape</span>
+              <select id="authoring-zone-shape">
+                <option value="sphere">sphere</option>
+                <option value="box">box</option>
+              </select>
+            </label>
+            <label>
+              <span>Zone size</span>
+              <input id="authoring-zone-size" type="number" step="1" value="10" />
+            </label>
           </div>
           <div class="controls">
             <button id="mode-play" class="secondary">Play</button>
             <button id="mode-place" class="secondary">Place</button>
             <button id="mode-move" class="secondary">Move</button>
+            <button id="mode-zone" class="secondary">Zone</button>
             <button id="delete-selected" class="secondary">Delete Selected</button>
           </div>
         </section>
@@ -252,6 +275,9 @@ async function bootstrap(): Promise<void> {
   const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
   const authoringScaleInput = root.querySelector<HTMLInputElement>("#authoring-scale");
   const authoringYawInput = root.querySelector<HTMLInputElement>("#authoring-yaw");
+  const authoringZoneKindInput = root.querySelector<HTMLSelectElement>("#authoring-zone-kind");
+  const authoringZoneShapeInput = root.querySelector<HTMLSelectElement>("#authoring-zone-shape");
+  const authoringZoneSizeInput = root.querySelector<HTMLInputElement>("#authoring-zone-size");
   const seedInput = root.querySelector<HTMLInputElement>("#world-seed");
   const sizeInput = root.querySelector<HTMLInputElement>("#world-size");
   const buildingInput = root.querySelector<HTMLInputElement>("#building-count");
@@ -286,6 +312,9 @@ async function bootstrap(): Promise<void> {
     !authoringPrefabInput ||
     !authoringScaleInput ||
     !authoringYawInput ||
+    !authoringZoneKindInput ||
+    !authoringZoneShapeInput ||
+    !authoringZoneSizeInput ||
     !seedInput ||
     !sizeInput ||
     !buildingInput ||
@@ -300,7 +329,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const store = new WorldStore(makeFlatOutpostWorld());
-  let authoringMode: "play" | "place" | "move" = "play";
+  let authoringMode: "play" | "place" | "move" | "zone" = "play";
   const scene = new SceneRuntime(canvasRoot, (entityId) => {
     if (authoringMode !== "play") {
       return;
@@ -317,6 +346,7 @@ async function bootstrap(): Promise<void> {
   let stressCooldownFrames = 0;
   let modelTuningBoundEntityId: string | null = null;
   let placedEntityCounter = 1;
+  let placedZoneCounter = 1;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
 
@@ -487,6 +517,36 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Deleted '${selectedEntityId}'.`);
   };
 
+  const placeZoneAt = (x: number, z: number): void => {
+    const size = Math.max(1, readNumber(authoringZoneSizeInput.value, 10));
+    const zoneId = `${authoringZoneKindInput.value}.placed.${placedZoneCounter++}`;
+    store.apply([
+      {
+        op: "define_zone",
+        zone: {
+          id: zoneId,
+          name: `${authoringZoneKindInput.value} zone ${placedZoneCounter - 1}`,
+          kind: authoringZoneKindInput.value as "spawn" | "loot" | "safe" | "encounter" | "objective" | "trigger",
+          shape:
+            authoringZoneShapeInput.value === "sphere"
+              ? {
+                  type: "sphere",
+                  radius: size,
+                }
+              : {
+                  type: "box",
+                  size: makeVec3(size, 2, size),
+                },
+          transform: {
+            position: makeVec3(x, 1, z),
+          },
+          tags: ["authored"],
+        },
+      },
+    ]);
+    appendEvent(`Placed ${authoringZoneKindInput.value} zone at (${x.toFixed(1)}, ${z.toFixed(1)}).`);
+  };
+
   const handleCanvasAuthoring = (event: PointerEvent): void => {
     if (authoringMode === "play") {
       return;
@@ -505,6 +565,10 @@ async function bootstrap(): Promise<void> {
     }
     if (authoringMode === "move") {
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
+      return;
+    }
+    if (authoringMode === "zone") {
+      placeZoneAt(groundPick.point.x, groundPick.point.z);
     }
   };
 
@@ -547,7 +611,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}`;
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedRuntimeDebug,
@@ -689,6 +753,12 @@ async function bootstrap(): Promise<void> {
     authoringMode = "move";
     syncAuthoringMode();
     appendEvent("Authoring mode set to move selected entity.");
+  });
+
+  root.querySelector<HTMLButtonElement>("#mode-zone")?.addEventListener("click", () => {
+    authoringMode = "zone";
+    syncAuthoringMode();
+    appendEvent(`Authoring mode set to zone '${authoringZoneKindInput.value}'.`);
   });
 
   root.querySelector<HTMLButtonElement>("#delete-selected")?.addEventListener("click", () => {
