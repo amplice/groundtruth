@@ -69,6 +69,10 @@ export interface SceneDebugOptions {
   showAggroRanges: boolean;
 }
 
+export interface GroundPickResult {
+  point: { x: number; y: number; z: number };
+}
+
 export class SceneRuntime {
   private readonly renderer: THREE.WebGLRenderer;
 
@@ -85,6 +89,8 @@ export class SceneRuntime {
   private readonly raycaster = new THREE.Raycaster();
 
   private readonly pointer = new THREE.Vector2();
+
+  private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   private readonly entityMap = new Map<string, THREE.Object3D>();
 
@@ -335,6 +341,25 @@ export class SceneRuntime {
     return {
       forward: { x: forward.x, z: forward.z },
       right: { x: right.x, z: right.z },
+    };
+  }
+
+  screenPointToGround(clientX: number, clientY: number): GroundPickResult | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    this.pointer.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    this.pointer.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+    this.raycaster.setFromCamera(this.pointer, this.camera);
+    const hit = new THREE.Vector3();
+    const intersects = this.raycaster.ray.intersectPlane(this.groundPlane, hit);
+    if (!intersects) {
+      return null;
+    }
+    return {
+      point: {
+        x: hit.x,
+        y: hit.y,
+        z: hit.z,
+      },
     };
   }
 

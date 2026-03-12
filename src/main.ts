@@ -93,6 +93,28 @@ async function bootstrap(): Promise<void> {
         </section>
         <section class="section">
           <div class="section-head">
+            <h2>Authoring</h2>
+            <span>In-world editing</span>
+          </div>
+          <div class="generation-grid">
+            <label>
+              <span>Mode</span>
+              <input id="authoring-mode" value="play" readonly />
+            </label>
+            <label>
+              <span>Prefab</span>
+              <input id="authoring-prefab" value="shack_building" />
+            </label>
+          </div>
+          <div class="controls">
+            <button id="mode-play" class="secondary">Play</button>
+            <button id="mode-place" class="secondary">Place</button>
+            <button id="mode-move" class="secondary">Move</button>
+            <button id="delete-selected" class="secondary">Delete Selected</button>
+          </div>
+        </section>
+        <section class="section">
+          <div class="section-head">
             <h2>Command Script</h2>
             <span>Semantic JSON</span>
           </div>
@@ -218,6 +240,8 @@ async function bootstrap(): Promise<void> {
   const screenshotPreview = root.querySelector<HTMLImageElement>("#screenshot-preview");
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
+  const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
+  const authoringPrefabInput = root.querySelector<HTMLInputElement>("#authoring-prefab");
   const seedInput = root.querySelector<HTMLInputElement>("#world-seed");
   const sizeInput = root.querySelector<HTMLInputElement>("#world-size");
   const buildingInput = root.querySelector<HTMLInputElement>("#building-count");
@@ -248,6 +272,8 @@ async function bootstrap(): Promise<void> {
     !screenshotPreview ||
     !playtestHud ||
     !snapshotFileInput ||
+    !authoringModeInput ||
+    !authoringPrefabInput ||
     !seedInput ||
     !sizeInput ||
     !buildingInput ||
@@ -262,7 +288,13 @@ async function bootstrap(): Promise<void> {
   }
 
   const store = new WorldStore(makeFlatOutpostWorld());
-  const scene = new SceneRuntime(canvasRoot, (entityId) => store.selectEntity(entityId));
+  let authoringMode: "play" | "place" | "move" = "play";
+  const scene = new SceneRuntime(canvasRoot, (entityId) => {
+    if (authoringMode !== "play") {
+      return;
+    }
+    store.selectEntity(entityId);
+  });
   const physics = await PhysicsRuntime.create(store.getWorld().settings.gravity.y);
   const input = new InputController();
   const runtimeModule = new ThirdPersonSurvivalModule();
@@ -272,6 +304,7 @@ async function bootstrap(): Promise<void> {
   let worldSwapState: "idle" | "queued" | "rebuilding" | "failed" = "idle";
   let stressCooldownFrames = 0;
   let modelTuningBoundEntityId: string | null = null;
+  let placedEntityCounter = 1;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
 
@@ -361,6 +394,94 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Applied model tuning to '${selectedEntityId}'.`);
   };
 
+  const syncAuthoringMode = (): void => {
+    authoringModeInput.value = authoringMode;
+  };
+
+  const placePrefabAt = (prefabId: string, x: number, z: number): void => {
+    const prefab = store.peekWorld().prefabs[prefabId];
+    if (!prefab) {
+      appendEvent(`Cannot place unknown prefab '${prefabId}'.`);
+      return;
+    }
+
+    const entityId = `${prefabId}.placed.${placedEntityCounter++}`;
+    store.apply([
+      {
+        op: "spawn_entity",
+        entity: {
+          id: entityId,
+          name: `${prefab.name} ${placedEntityCounter - 1}`,
+          prefabId,
+          transform: {
+            position: makeVec3(x, inferPlacementHeight(prefabId), z),
+            rotation: makeVec3(0, 0, 0),
+            scale: makeVec3(1, 1, 1),
+          },
+        },
+      },
+    ]);
+    store.selectEntity(entityId);
+    appendEvent(`Placed '${prefabId}' at (${x.toFixed(1)}, ${z.toFixed(1)}).`);
+  };
+
+  const moveSelectedEntityTo = (x: number, z: number): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!selectedEntityId) {
+      appendEvent("Move skipped: no selected entity.");
+      return;
+    }
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      appendEvent(`Move skipped: missing entity '${selectedEntityId}'.`);
+      return;
+    }
+    store.updateEntityTransform(
+      selectedEntityId,
+      {
+        position: {
+          ...entity.transform.position,
+          x,
+          z,
+        },
+      },
+      true,
+    );
+    appendEvent(`Moved '${selectedEntityId}' to (${x.toFixed(1)}, ${z.toFixed(1)}).`);
+  };
+
+  const deleteSelectedEntity = (): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    if (!selectedEntityId || selectedEntityId === "player" || selectedEntityId === "ground") {
+      appendEvent("Delete skipped: select a non-core entity.");
+      return;
+    }
+    store.apply([{ op: "delete_entity", entityId: selectedEntityId }]);
+    store.selectEntity(null);
+    appendEvent(`Deleted '${selectedEntityId}'.`);
+  };
+
+  const handleCanvasAuthoring = (event: PointerEvent): void => {
+    if (authoringMode === "play") {
+      return;
+    }
+    if (event.button !== 0) {
+      return;
+    }
+
+    const groundPick = scene.screenPointToGround(event.clientX, event.clientY);
+    if (!groundPick) {
+      return;
+    }
+    if (authoringMode === "place") {
+      placePrefabAt(authoringPrefabInput.value.trim(), groundPick.point.x, groundPick.point.z);
+      return;
+    }
+    if (authoringMode === "move") {
+      moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
+    }
+  };
+
   commandScript.value = exampleCommandScript;
   scene.setDebugOptions({
     showZones: toggleZonesInput.checked,
@@ -400,6 +521,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nAuthoring prefab: ${authoringPrefabInput.value.trim()}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedRuntimeDebug,
@@ -524,6 +646,30 @@ async function bootstrap(): Promise<void> {
     syncSidebarState();
   });
 
+  root.querySelector<HTMLButtonElement>("#mode-play")?.addEventListener("click", () => {
+    authoringMode = "play";
+    syncAuthoringMode();
+    appendEvent("Authoring mode set to play.");
+  });
+
+  root.querySelector<HTMLButtonElement>("#mode-place")?.addEventListener("click", () => {
+    authoringMode = "place";
+    syncAuthoringMode();
+    appendEvent(`Authoring mode set to place '${authoringPrefabInput.value.trim()}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#mode-move")?.addEventListener("click", () => {
+    authoringMode = "move";
+    syncAuthoringMode();
+    appendEvent("Authoring mode set to move selected entity.");
+  });
+
+  root.querySelector<HTMLButtonElement>("#delete-selected")?.addEventListener("click", () => {
+    deleteSelectedEntity();
+  });
+
+  canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
+
   root.querySelector<HTMLButtonElement>("#load-generated")?.addEventListener("click", () => {
     buildGeneratedWorld();
   });
@@ -623,6 +769,7 @@ async function bootstrap(): Promise<void> {
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
   syncSidebarState();
+  syncAuthoringMode();
   syncModelTuningInputs(true);
 
   const animate = (): void => {
@@ -679,6 +826,19 @@ function parseNumber(source: string, fallback: number, minimum: number): number 
 function readNumber(source: string, fallback: number): number {
   const value = Number.parseFloat(source);
   return Number.isFinite(value) ? value : fallback;
+}
+
+function inferPlacementHeight(prefabId: string): number {
+  if (prefabId.includes("building")) {
+    return 1.6;
+  }
+  if (prefabId.includes("crate")) {
+    return 0.5;
+  }
+  if (prefabId.includes("zombie") || prefabId.includes("player")) {
+    return 1.1;
+  }
+  return 0.5;
 }
 
 function downloadJson(filename: string, data: unknown): void {
