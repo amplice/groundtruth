@@ -140,6 +140,7 @@ async function bootstrap(): Promise<void> {
             <button id="mode-play" class="secondary">Play</button>
             <button id="mode-place" class="secondary">Place</button>
             <button id="mode-move" class="secondary">Move</button>
+            <button id="mode-resize" class="secondary">Resize</button>
             <button id="mode-zone" class="secondary">Zone</button>
             <button id="apply-selected-transform" class="secondary">Apply To Selected</button>
             <button id="delete-selected" class="secondary">Delete Selected</button>
@@ -177,6 +178,23 @@ async function bootstrap(): Promise<void> {
           <div class="section-head">
             <h2>Scene</h2>
             <span>Entities and zones</span>
+          </div>
+          <div class="generation-grid">
+            <label>
+              <span>Search</span>
+              <input id="scene-search" placeholder="player, zombie, spawn..." />
+            </label>
+            <label>
+              <span>Filter</span>
+              <select id="scene-filter">
+                <option value="all">all</option>
+                <option value="entities">entities</option>
+                <option value="zones">zones</option>
+                <option value="actors">actors</option>
+                <option value="buildings">buildings</option>
+                <option value="loot">loot</option>
+              </select>
+            </label>
           </div>
           <div id="scene-inventory" class="scene-inventory"></div>
         </section>
@@ -266,6 +284,8 @@ async function bootstrap(): Promise<void> {
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
   const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
+  const sceneSearchInput = root.querySelector<HTMLInputElement>("#scene-search");
+  const sceneFilterInput = root.querySelector<HTMLSelectElement>("#scene-filter");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
   const modelScaleInput = root.querySelector<HTMLInputElement>("#model-scale");
@@ -304,6 +324,8 @@ async function bootstrap(): Promise<void> {
     !evaluationNode ||
     !sessionNode ||
     !sceneInventoryNode ||
+    !sceneSearchInput ||
+    !sceneFilterInput ||
     !inspectorNode ||
     !assetStatusNode ||
     !modelScaleInput ||
@@ -339,7 +361,7 @@ async function bootstrap(): Promise<void> {
   }
 
   const store = new WorldStore(makeFlatOutpostWorld());
-  let authoringMode: "play" | "place" | "move" | "zone" = "play";
+  let authoringMode: "play" | "place" | "move" | "resize" | "zone" = "play";
   const scene = new SceneRuntime(canvasRoot, (selection: SelectionTarget) => {
     if (authoringMode !== "play") {
       return;
@@ -369,6 +391,7 @@ async function bootstrap(): Promise<void> {
   let placedEntityCounter = 1;
   let placedZoneCounter = 1;
   let moveDragActive = false;
+  let resizeDragActive = false;
   let selectedZoneId: string | null = null;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
@@ -576,8 +599,8 @@ async function bootstrap(): Promise<void> {
 
   const syncAuthoringMode = (): void => {
     authoringModeInput.value = authoringMode;
-    if (authoringMode !== "move") {
-      stopMoveDrag();
+    if (authoringMode !== "move" && authoringMode !== "resize") {
+      stopAuthoringDrag();
     }
   };
 
@@ -671,6 +694,56 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Moved '${selectedEntityId}' to (${x.toFixed(1)}, ${z.toFixed(1)}).`);
   };
 
+  const resizeSelectedToPoint = (x: number, z: number): void => {
+    const selectedEntityId = store.getSelectedEntityId();
+    const selectedZone = getSelectedZone();
+    if (!selectedEntityId && !selectedZone) {
+      appendEvent("Resize skipped: no selected entity or zone.");
+      return;
+    }
+
+    if (selectedZone) {
+      const dx = x - selectedZone.transform.position.x;
+      const dz = z - selectedZone.transform.position.z;
+      const distance = Math.max(1, Math.sqrt((dx * dx) + (dz * dz)));
+      const nextZone: ZoneSpec = {
+        ...selectedZone,
+        shape: selectedZone.shape.type === "sphere"
+          ? {
+              type: "sphere",
+              radius: distance,
+            }
+          : {
+              type: "box",
+              size: makeVec3(distance * 2, selectedZone.shape.size.y, distance * 2),
+            },
+      };
+      store.apply([{ op: "define_zone", zone: nextZone }]);
+      authoringZoneSizeInput.value = String(nextZone.shape.type === "sphere" ? nextZone.shape.radius : nextZone.shape.size.x);
+      return;
+    }
+
+    if (!selectedEntityId) {
+      return;
+    }
+    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
+    if (!entity) {
+      appendEvent(`Resize skipped: missing entity '${selectedEntityId}'.`);
+      return;
+    }
+    const dx = x - entity.transform.position.x;
+    const dz = z - entity.transform.position.z;
+    const uniformScale = Math.max(0.25, Math.sqrt((dx * dx) + (dz * dz)) / 2);
+    store.updateEntityTransform(
+      selectedEntityId,
+      {
+        scale: makeVec3(uniformScale, uniformScale, uniformScale),
+      },
+      true,
+    );
+    authoringScaleInput.value = uniformScale.toFixed(2);
+  };
+
   const deleteSelectedEntity = (): void => {
     const selectedEntityId = store.getSelectedEntityId();
     const selectedZone = getSelectedZone();
@@ -743,27 +816,37 @@ async function bootstrap(): Promise<void> {
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
       return;
     }
+    if (authoringMode === "resize") {
+      resizeDragActive = true;
+      scene.setOrbitEnabled(false);
+      resizeSelectedToPoint(groundPick.point.x, groundPick.point.z);
+      return;
+    }
     if (authoringMode === "zone") {
       placeZoneAt(groundPick.point.x, groundPick.point.z);
     }
   };
 
   const handleCanvasAuthoringMove = (event: PointerEvent): void => {
-    if (!moveDragActive || authoringMode !== "move") {
-      return;
-    }
     const groundPick = scene.screenPointToGround(event.clientX, event.clientY);
     if (!groundPick) {
       return;
     }
-    moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
+    if (moveDragActive && authoringMode === "move") {
+      moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
+      return;
+    }
+    if (resizeDragActive && authoringMode === "resize") {
+      resizeSelectedToPoint(groundPick.point.x, groundPick.point.z);
+    }
   };
 
-  const stopMoveDrag = (): void => {
-    if (!moveDragActive) {
+  const stopAuthoringDrag = (): void => {
+    if (!moveDragActive && !resizeDragActive) {
       return;
     }
     moveDragActive = false;
+    resizeDragActive = false;
     scene.setOrbitEnabled(true);
   };
 
@@ -807,7 +890,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
+    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedZone,
@@ -815,7 +898,13 @@ async function bootstrap(): Promise<void> {
       selectedVisualDebug,
       selectedPhysicsDebug,
     );
-    sceneInventoryNode.innerHTML = renderSceneInventory(world, selectedEntityId, selectedZone?.id ?? null);
+    sceneInventoryNode.innerHTML = renderSceneInventory(
+      world,
+      selectedEntityId,
+      selectedZone?.id ?? null,
+      sceneSearchInput.value,
+      sceneFilterInput.value,
+    );
     assetStatusNode.textContent = formatAssetReports(assetReports);
     playtestHud.innerHTML = renderHud(
       runtimeModule.getStatusLines?.() ?? [],
@@ -963,6 +1052,12 @@ async function bootstrap(): Promise<void> {
     appendEvent("Authoring mode set to move selected entity.");
   });
 
+  root.querySelector<HTMLButtonElement>("#mode-resize")?.addEventListener("click", () => {
+    authoringMode = "resize";
+    syncAuthoringMode();
+    appendEvent("Authoring mode set to resize selected entity or zone.");
+  });
+
   root.querySelector<HTMLButtonElement>("#mode-zone")?.addEventListener("click", () => {
     authoringMode = "zone";
     syncAuthoringMode();
@@ -1001,8 +1096,8 @@ async function bootstrap(): Promise<void> {
 
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
   canvasRoot.addEventListener("pointermove", handleCanvasAuthoringMove);
-  canvasRoot.addEventListener("pointerup", stopMoveDrag);
-  canvasRoot.addEventListener("pointerleave", stopMoveDrag);
+  canvasRoot.addEventListener("pointerup", stopAuthoringDrag);
+  canvasRoot.addEventListener("pointerleave", stopAuthoringDrag);
 
   root.querySelector<HTMLButtonElement>("#load-generated")?.addEventListener("click", () => {
     buildGeneratedWorld();
@@ -1102,6 +1197,8 @@ async function bootstrap(): Promise<void> {
   toggleCombatInput.addEventListener("change", syncDebugOptions);
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
+  sceneSearchInput.addEventListener("input", refreshSidebar);
+  sceneFilterInput.addEventListener("change", refreshSidebar);
   syncSidebarState();
   syncAuthoringPrefabs();
   syncAuthoringMode();
@@ -1274,9 +1371,33 @@ function renderSceneInventory(
   world: ReturnType<WorldStore["getWorld"]>,
   selectedEntityId: string | null,
   selectedZoneId: string | null,
+  query: string,
+  filter: string,
 ): string {
+  const normalizedQuery = query.trim().toLowerCase();
+  const matchesQuery = (value: string) => normalizedQuery.length === 0 || value.toLowerCase().includes(normalizedQuery);
+  const entityMatchesFilter = (entity: ReturnType<WorldStore["getWorld"]>["entities"][number]) => {
+    if (filter === "all" || filter === "entities") {
+      return true;
+    }
+    if (filter === "actors") {
+      return entity.id === "player" || entity.tags?.includes("enemy") || entity.prefabId?.includes("zombie") || entity.prefabId?.includes("player");
+    }
+    if (filter === "buildings") {
+      return entity.prefabId?.includes("building") || entity.name.toLowerCase().includes("building");
+    }
+    if (filter === "loot") {
+      return entity.prefabId?.includes("crate") || entity.name.toLowerCase().includes("crate");
+    }
+    return false;
+  };
+  const zoneMatchesFilter = (zone: ZoneSpec) => filter === "all" || filter === "zones" || filter === zone.kind;
+
   const entityItems = world.entities
     .slice()
+    .filter((entity) =>
+      entityMatchesFilter(entity) &&
+      matchesQuery(`${entity.id} ${entity.name} ${entity.prefabId ?? ""} ${(entity.tags ?? []).join(" ")}`))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((entity) => {
       const isSelected = entity.id === selectedEntityId;
@@ -1296,6 +1417,7 @@ function renderSceneInventory(
 
   const zoneItems = world.zones
     .slice()
+    .filter((zone) => zoneMatchesFilter(zone) && matchesQuery(`${zone.id} ${zone.name} ${zone.kind} ${(zone.tags ?? []).join(" ")}`))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((zone) => {
       const isSelected = zone.id === selectedZoneId;
