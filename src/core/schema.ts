@@ -3,10 +3,18 @@ export type GameMode =
   | "open_world"
   | "first_person"
   | "third_person"
+  | "action"
+  | "rpg"
   | "rts"
   | "fighting"
   | "moba"
-  | "puzzle";
+  | "puzzle"
+  | "platformer"
+  | "driving"
+  | "racing"
+  | "city_builder"
+  | "tower_defense"
+  | "roguelike";
 
 export interface Vec3 {
   x: number;

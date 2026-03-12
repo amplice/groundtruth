@@ -10,6 +10,18 @@ export interface CharacterMoveResult {
   collisions: number;
 }
 
+interface PhysicsDebugState {
+  position: Vec3;
+  grounded: boolean;
+  collisions: number;
+  desiredDelta: Vec3;
+}
+
+export interface PhysicsRuntimeStats {
+  syncCount: number;
+  retiredWorlds: number;
+}
+
 export class PhysicsRuntime {
   private readonly bodyMap = new Map<string, RAPIERModule.RigidBody>();
 
@@ -17,11 +29,15 @@ export class PhysicsRuntime {
 
   private characterController: RAPIERModule.KinematicCharacterController | null = null;
 
+  private readonly debugState = new Map<string, PhysicsDebugState>();
+
   private readonly retiredResources: Array<{
     world: RAPIERModule.World;
     controller: RAPIERModule.KinematicCharacterController | null;
     framesUntilFree: number;
   }> = [];
+
+  private syncCount = 0;
 
   private constructor(
     private readonly rapier: Rapier,
@@ -92,8 +108,10 @@ export class PhysicsRuntime {
     this.world = nextWorld;
     this.characterController = nextCharacterController;
     this.colliderCount = nextColliderCount;
+    this.syncCount += 1;
     this.bodyMap.clear();
     this.colliderMap.clear();
+    this.debugState.clear();
     for (const [entityId, body] of nextBodyMap) {
       this.bodyMap.set(entityId, body);
     }
@@ -109,6 +127,30 @@ export class PhysicsRuntime {
 
   getColliderCount(): number {
     return this.colliderCount;
+  }
+
+  getRuntimeStats(): PhysicsRuntimeStats {
+    return {
+      syncCount: this.syncCount,
+      retiredWorlds: this.retiredResources.length,
+    };
+  }
+
+  getEntityDebug(entityId: string): string[] {
+    const body = this.bodyMap.get(entityId);
+    const collider = this.colliderMap.get(entityId);
+    const debug = this.debugState.get(entityId);
+    const lines = [
+      `Physics body: ${body ? (body.isFixed() ? "static" : body.isKinematic() ? "kinematic" : "dynamic") : "none"}`,
+      `Collider: ${collider ? "present" : "none"}`,
+      `Grounded: ${debug ? String(debug.grounded) : "n/a"}`,
+      `Collisions: ${debug ? String(debug.collisions) : "n/a"}`,
+    ];
+    if (debug) {
+      lines.push(`Physics pos: ${formatVec3(debug.position)}`);
+      lines.push(`Desired delta: ${formatVec3(debug.desiredDelta)}`);
+    }
+    return lines;
   }
 
   moveCharacter(entityId: string, desiredDelta: Vec3): CharacterMoveResult | null {
@@ -145,11 +187,17 @@ export class PhysicsRuntime {
     body.setTranslation(nextPosition, false);
     this.world.propagateModifiedBodyPositionsToColliders();
 
-    return {
+    const result = {
       position: nextPosition,
       grounded: this.characterController.computedGrounded(),
       collisions: this.characterController.numComputedCollisions(),
     };
+    this.debugState.set(entityId, {
+      ...result,
+      desiredDelta: { ...desiredDelta },
+    });
+
+    return result;
   }
 
   private makeColliderDesc(
@@ -190,6 +238,7 @@ export class PhysicsRuntime {
   private retireCurrentWorld(): void {
     this.bodyMap.clear();
     this.colliderMap.clear();
+    this.debugState.clear();
     this.retiredResources.push({
       world: this.world,
       controller: this.characterController,
@@ -226,4 +275,8 @@ export class PhysicsRuntime {
     this.retiredResources.length = 0;
     this.retiredResources.push(...pending);
   }
+}
+
+function formatVec3(value: Vec3): string {
+  return `(${value.x.toFixed(2)}, ${value.y.toFixed(2)}, ${value.z.toFixed(2)})`;
 }

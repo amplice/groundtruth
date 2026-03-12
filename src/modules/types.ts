@@ -17,4 +17,5 @@ export interface RuntimeModule {
   getStatusLines?(): string[];
   getDebugFindings?(): string[];
   getEntityDebug?(world: WorldDocument, entityId: string): string[];
+  getRecentEvents?(): string[];
 }

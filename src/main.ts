@@ -32,6 +32,7 @@ async function bootstrap(): Promise<void> {
           <button id="load-generated">Generate Flat Outpost</button>
           <button id="load-sample">Load Survival Slice</button>
           <button id="reset-world" class="secondary">Reset World</button>
+          <button id="stress-world" class="secondary">Stress Test Swaps</button>
           <button id="apply-commands">Apply Commands</button>
           <button id="export-world" class="secondary">Export Snapshot</button>
           <button id="import-world" class="secondary">Import Snapshot</button>
@@ -145,6 +146,13 @@ async function bootstrap(): Promise<void> {
           </div>
           <pre id="issues"></pre>
         </section>
+        <section class="section">
+          <div class="section-head">
+            <h2>Events</h2>
+            <span>Recent runtime log</span>
+          </div>
+          <pre id="event-log"></pre>
+        </section>
       </aside>
       <main class="viewport">
         <div class="viewport-head">
@@ -175,6 +183,7 @@ async function bootstrap(): Promise<void> {
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
   const selectionNode = root.querySelector<HTMLElement>("#selection");
   const issuesNode = root.querySelector<HTMLElement>("#issues");
+  const eventLogNode = root.querySelector<HTMLElement>("#event-log");
   const runtimeStatsNode = root.querySelector<HTMLElement>("#runtime-stats");
   const toggleSidebarButton = root.querySelector<HTMLButtonElement>("#toggle-sidebar");
   const commandScript = root.querySelector<HTMLTextAreaElement>("#command-script");
@@ -201,6 +210,7 @@ async function bootstrap(): Promise<void> {
     !assetStatusNode ||
     !selectionNode ||
     !issuesNode ||
+    !eventLogNode ||
     !runtimeStatsNode ||
     !toggleSidebarButton ||
     !commandScript ||
@@ -228,6 +238,17 @@ async function bootstrap(): Promise<void> {
   let lastFrameTime = performance.now();
   let sidebarCollapsed = false;
   let pendingWorldRebuild = false;
+  let stressCooldownFrames = 0;
+  const stressActions: Array<() => void> = [];
+  const runtimeEvents: string[] = [];
+
+  const appendEvent = (message: string): void => {
+    const line = `${new Date().toLocaleTimeString()} | ${message}`;
+    runtimeEvents.unshift(line);
+    if (runtimeEvents.length > 40) {
+      runtimeEvents.length = 40;
+    }
+  };
 
   commandScript.value = exampleCommandScript;
   scene.setDebugOptions({
@@ -242,12 +263,16 @@ async function bootstrap(): Promise<void> {
     const diagnostics = store.getDiagnostics();
     const evaluation = evaluateWorld(world);
     const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
+    const moduleEvents = runtimeModule.getRecentEvents?.() ?? [];
     const selectedEntityId = store.getSelectedEntityId();
     const selectedRuntimeDebug = selectedEntityId
       ? runtimeModule.getEntityDebug?.(world, selectedEntityId) ?? []
       : [];
     const selectedVisualDebug = selectedEntityId
       ? scene.getEntityVisualDebug(selectedEntityId)
+      : [];
+    const selectedPhysicsDebug = selectedEntityId
+      ? physics.getEntityDebug(selectedEntityId)
       : [];
     const playerRuntimeDebug = runtimeModule.getEntityDebug?.(world, "player") ?? [];
     const playerVisualDebug = scene.getEntityVisualDebug("player");
@@ -259,6 +284,7 @@ async function bootstrap(): Promise<void> {
       }
       return lines;
     });
+    const physicsStats = physics.getRuntimeStats();
 
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
@@ -267,6 +293,7 @@ async function bootstrap(): Promise<void> {
       selectedEntityId,
       selectedRuntimeDebug,
       selectedVisualDebug,
+      selectedPhysicsDebug,
     );
     assetStatusNode.textContent = formatAssetReports(assetReports);
     playtestHud.innerHTML = renderHud(
@@ -279,6 +306,7 @@ async function bootstrap(): Promise<void> {
       ],
     );
     selectionNode.textContent = store.getSelectedEntityJson();
+    eventLogNode.textContent = [...moduleEvents, ...runtimeEvents].slice(0, 40).join("\n") || "No runtime events yet.";
     issuesNode.textContent =
       [
         ...runtimeFindings,
@@ -295,6 +323,8 @@ async function bootstrap(): Promise<void> {
       `Triangles: ${renderStats.triangleCount}`,
       `Objects: ${renderStats.objectCount}`,
       `Physics colliders: ${physics.getColliderCount()}`,
+      `Physics syncs: ${physicsStats.syncCount}`,
+      `Retired worlds: ${physicsStats.retiredWorlds}`,
       `Eval warnings: ${evaluation.counts.warn}`,
       `Eval errors: ${evaluation.counts.error}`,
       `Module: ${runtimeModule.id}`,
@@ -303,9 +333,16 @@ async function bootstrap(): Promise<void> {
 
   const rebuildWorld = (): void => {
     const world = store.getWorld();
-    scene.setWorld(world);
-    physics.syncWorld(world);
-    refreshSidebar();
+    try {
+      scene.setWorld(world);
+      physics.syncWorld(world);
+      appendEvent(`World rebuilt: ${world.metadata.id}`);
+      refreshSidebar();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendEvent(`World rebuild failed: ${message}`);
+      issuesNode.textContent = `World rebuild failed: ${message}`;
+    }
   };
 
   const buildGeneratedWorld = (): void => {
@@ -318,13 +355,42 @@ async function bootstrap(): Promise<void> {
         crateCount: parseNumber(crateInput.value, defaultFlatWorldOptions.crateCount, 0),
       }),
     );
+    appendEvent("Requested generated flat outpost world.");
+  };
+
+  const enqueueStressTest = (): void => {
+    stressActions.length = 0;
+    for (let index = 0; index < 12; index += 1) {
+      stressActions.push(() => {
+        store.setWorld(
+          index % 2 === 0
+            ? makeFlatOutpostWorld({
+                seed: defaultFlatWorldOptions.seed + index,
+                worldHalfExtent: defaultFlatWorldOptions.worldHalfExtent,
+                buildingCount: defaultFlatWorldOptions.buildingCount,
+                zombieCount: defaultFlatWorldOptions.zombieCount,
+                crateCount: defaultFlatWorldOptions.crateCount,
+              })
+            : makeThirdPersonSurvivalWorld(),
+        );
+      });
+      stressActions.push(() => {
+        store.selectEntity(index % 2 === 0 ? "player" : `zombie.${(index % 3) + 1}`);
+      });
+      stressActions.push(() => {
+        store.apply([{ op: "reset_world" }]);
+      });
+    }
+    appendEvent(`Queued stress test with ${stressActions.length} swap operations.`);
   };
 
   store.subscribe((event) => {
     if (event === "world") {
       pendingWorldRebuild = true;
+      appendEvent(`Store event: world -> ${store.peekWorld().metadata.id}`);
       return;
     }
+    appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? "none"}`);
     refreshSidebar();
   });
   pendingWorldRebuild = true;
@@ -347,10 +413,16 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#load-sample")?.addEventListener("click", () => {
     store.setWorld(makeThirdPersonSurvivalWorld());
+    appendEvent("Requested authored survival slice.");
   });
 
   root.querySelector<HTMLButtonElement>("#reset-world")?.addEventListener("click", () => {
     store.apply([{ op: "reset_world" }]);
+    appendEvent("Requested reset_world command.");
+  });
+
+  root.querySelector<HTMLButtonElement>("#stress-world")?.addEventListener("click", () => {
+    enqueueStressTest();
   });
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
@@ -430,17 +502,30 @@ async function bootstrap(): Promise<void> {
     const now = performance.now();
     const dtSeconds = Math.min((now - lastFrameTime) / 1000, 0.05);
     lastFrameTime = now;
+    if (stressCooldownFrames > 0) {
+      stressCooldownFrames -= 1;
+    } else if (stressActions.length > 0) {
+      const next = stressActions.shift();
+      next?.();
+      stressCooldownFrames = 3;
+    }
     if (pendingWorldRebuild) {
       pendingWorldRebuild = false;
       rebuildWorld();
     }
-    runtimeModule.update(dtSeconds, {
-      store,
-      scene,
-      physics,
-      input,
-    });
-    physics.step();
+    try {
+      runtimeModule.update(dtSeconds, {
+        store,
+        scene,
+        physics,
+        input,
+      });
+      physics.step();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      appendEvent(`Runtime step failed: ${message}`);
+      issuesNode.textContent = `Runtime step failed: ${message}`;
+    }
     scene.renderFrame(dtSeconds);
     refreshSidebar();
     requestAnimationFrame(animate);
@@ -522,6 +607,7 @@ function formatInspector(
   entityId: string | null,
   runtimeLines: string[],
   visualLines: string[],
+  physicsLines: string[],
 ): string {
   if (!entityId) {
     return "No entity selected.";
@@ -531,6 +617,7 @@ function formatInspector(
     `Entity: ${entityId}`,
     ...runtimeLines,
     ...visualLines,
+    ...physicsLines,
   ].join("\n");
 }
 

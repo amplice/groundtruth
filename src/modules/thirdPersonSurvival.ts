@@ -29,6 +29,8 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   private readonly motionSamples = new Map<string, MotionSample>();
 
+  private recentEvents: string[] = [];
+
   private statusLines = [
     "WASD move | Shift sprint | Space attack | E loot",
   ];
@@ -114,6 +116,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     return lines;
   }
 
+  getRecentEvents(): string[] {
+    return [...this.recentEvents];
+  }
+
   private updatePlayerMovement(
     dtSeconds: number,
     context: ModuleContext,
@@ -124,7 +130,13 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
   ): void {
     const axes = context.input.movementAxes();
     const length = Math.hypot(axes.x, axes.z);
-    if (length <= 0.001) {
+    const world = context.store.peekWorld();
+    const resolvedPlayer = resolveEntity(world, this.mustFindEntity(context, playerId));
+    const currentLock = this.animationLocks.get(playerId);
+    const lockedAction = currentLock
+      ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
+      : null;
+    if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
       this.syncAnimationState(context, playerId, "idle");
       context.scene.updateFollowCamera(playerId, cameraRig);
       return;
@@ -193,6 +205,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     this.syncAction(context, playerId, attackAction);
 
     if (!target) {
+      this.pushEvent("Player attack missed.");
       this.statusLines = [
         "WASD move | Shift sprint | Space attack | E loot",
         `Player HP ${this.readHealth(resolvedPlayer)}`,
@@ -202,6 +215,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     }
 
     this.applyDamage(context, target.id, combat.damage);
+    this.pushEvent(`Player hit ${target.name} for ${combat.damage}.`);
     this.statusLines = [
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(resolvedPlayer)}`,
@@ -268,6 +282,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
     context.store.updateEntityComponents(playerId, { inventory: nextPlayerInventory });
     context.store.updateEntityComponents(interactive.id, { inventory: nextContainerInventory });
+    this.pushEvent(`Player looted ${itemId} from ${interactive.name}.`);
     this.statusLines = [
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, playerId)))}`,
@@ -318,6 +333,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
       const speed = resolved.components.character?.moveSpeed ?? 2;
       const combat = resolved.components.combat;
+      const currentLock = this.animationLocks.get(entity.id);
+      const lockedAction = currentLock
+        ? this.resolveActionDefinition(resolved, currentLock.state)
+        : null;
       const deltaX = player.transform.position.x - entity.transform.position.x;
       const deltaZ = player.transform.position.z - entity.transform.position.z;
       const distance = Math.hypot(deltaX, deltaZ);
@@ -331,12 +350,13 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
         this.setCooldown(entity.id, combat.cooldownSeconds);
         this.lockAnimationState(entity.id, "attack", attackDuration);
         this.syncAction(context, entity.id, attackAction);
+        this.pushEvent(`${resolved.name} hit player for ${combat.damage}.`);
         this.recordZombieMotion(entity.id, resolved.transform.position, false, dtSeconds);
         continue;
       }
 
       const chasing = distance > attackRange && distance <= aggroRadius;
-      if (!chasing) {
+      if (!chasing || (lockedAction?.lockMovement ?? false)) {
         this.syncAnimationState(context, entity.id, "idle");
         this.recordZombieMotion(entity.id, resolved.transform.position, false, dtSeconds);
         continue;
@@ -401,6 +421,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       const deathAction = this.resolveActionDefinition(resolvedTarget, "death");
       this.lockAnimationState(targetId, deathAction.state, Number.POSITIVE_INFINITY);
       this.syncAction(context, targetId, deathAction);
+      this.pushEvent(`${resolvedTarget.name} died.`);
       return;
     }
 
@@ -411,6 +432,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       Math.min(this.resolveActionDuration(context, targetId, hurtAction), 0.45),
     );
     this.syncAction(context, targetId, hurtAction);
+    this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
   private findNearestTarget(
@@ -645,6 +667,14 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   private setCooldown(entityId: string, seconds: number): void {
     this.cooldowns.set(entityId, seconds);
+  }
+
+  private pushEvent(message: string): void {
+    const line = `${new Date().toLocaleTimeString()} | ${message}`;
+    this.recentEvents.unshift(line);
+    if (this.recentEvents.length > 24) {
+      this.recentEvents.length = 24;
+    }
   }
 
   private resolveActionDuration(
