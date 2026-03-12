@@ -20,6 +20,8 @@ interface MotionSample {
   stalledSeconds: number;
 }
 
+type ZombieActivityTier = "active" | "throttled" | "sleeping";
+
 export class ThirdPersonSurvivalModule implements RuntimeModule {
   readonly id = "third_person_survival";
 
@@ -29,6 +31,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   private readonly motionSamples = new Map<string, MotionSample>();
 
+  private readonly zombieUpdateAccumulatedDt = new Map<string, number>();
+
+  private readonly zombieActivityTiers = new Map<string, ZombieActivityTier>();
+
   private recentEvents: string[] = [];
 
   private statusLines = [
@@ -36,6 +42,12 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
   ];
 
   private debugFindings = ["No runtime findings."];
+
+  private zombieActivityCounts = {
+    active: 0,
+    throttled: 0,
+    sleeping: 0,
+  };
 
   update(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
@@ -110,6 +122,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
     if (resolved.components.brain?.archetype === "zombie") {
       const motion = this.motionSamples.get(entityId);
+      lines.push(`Activity: ${this.zombieActivityTiers.get(entityId) ?? "unknown"}`);
       lines.push(`Stall timer: ${motion ? formatSeconds(motion.stalledSeconds) : "0.00s"}`);
     }
 
@@ -301,6 +314,11 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       return;
     }
     const resolvedPlayer = resolveEntity(world, player);
+    this.zombieActivityCounts = {
+      active: 0,
+      throttled: 0,
+      sleeping: 0,
+    };
 
     for (const entity of world.entities) {
       if (entity.id === playerId) {
@@ -341,7 +359,28 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       const deltaZ = player.transform.position.z - entity.transform.position.z;
       const distance = Math.hypot(deltaX, deltaZ);
       const aggroRadius = brain.aggroRadius ?? 0;
+      const activityRadius = brain.activityRadius ?? Math.max(aggroRadius + 4, 18);
+      const sleepRadius = brain.sleepRadius ?? Math.max(activityRadius + 24, 42);
+      const activityTier: ZombieActivityTier =
+        distance <= activityRadius ? "active" : distance <= sleepRadius ? "throttled" : "sleeping";
+      this.zombieActivityTiers.set(entity.id, activityTier);
+      this.zombieActivityCounts[activityTier] += 1;
       const attackRange = combat?.range ?? 0;
+      const updateDt = this.consumeZombieUpdateDt(
+        entity.id,
+        dtSeconds,
+        activityTier === "throttled" ? brain.farThinkIntervalSeconds ?? 0.35 : 0,
+      );
+
+      if (activityTier === "sleeping") {
+        this.syncAnimationState(context, entity.id, "idle");
+        this.recordZombieMotion(entity.id, resolved.transform.position, false, dtSeconds);
+        continue;
+      }
+
+      if (updateDt === null) {
+        continue;
+      }
 
       if (combat && distance <= attackRange && this.cooldownReady(entity.id)) {
         const attackAction = this.resolveActionDefinition(resolved, "attack");
@@ -351,26 +390,26 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
         this.lockAnimationState(entity.id, "attack", attackDuration);
         this.syncAction(context, entity.id, attackAction);
         this.pushEvent(`${resolved.name} hit player for ${combat.damage}.`);
-        this.recordZombieMotion(entity.id, resolved.transform.position, false, dtSeconds);
+        this.recordZombieMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
       }
 
       const chasing = distance > attackRange && distance <= aggroRadius;
       if (!chasing || (lockedAction?.lockMovement ?? false)) {
         this.syncAnimationState(context, entity.id, "idle");
-        this.recordZombieMotion(entity.id, resolved.transform.position, false, dtSeconds);
+        this.recordZombieMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
       }
 
       const dirX = deltaX / distance;
       const dirZ = deltaZ / distance;
       const movement = context.physics.moveCharacter(entity.id, {
-        x: dirX * speed * dtSeconds,
+        x: dirX * speed * updateDt,
         y: 0,
-        z: dirZ * speed * dtSeconds,
+        z: dirZ * speed * updateDt,
       });
       if (!movement) {
-        this.recordZombieMotion(entity.id, resolved.transform.position, true, dtSeconds);
+        this.recordZombieMotion(entity.id, resolved.transform.position, true, updateDt);
         continue;
       }
       this.syncAnimationState(context, entity.id, "walk");
@@ -389,7 +428,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
         position: movement.position,
         rotation,
       });
-      this.recordZombieMotion(entity.id, movement.position, true, dtSeconds);
+      this.recordZombieMotion(entity.id, movement.position, true, updateDt);
     }
   }
 
@@ -503,6 +542,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     const baseLines = [
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
+      `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
     ];
 
     if (overrideLine) {
@@ -544,6 +584,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Player HP: ${this.readHealth(player)}`,
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
+      `Zombie activity: ${this.zombieActivityCounts.active} active, ${this.zombieActivityCounts.throttled} throttled, ${this.zombieActivityCounts.sleeping} sleeping`,
     ];
 
     if (stuckZombies.length > 0) {
@@ -663,6 +704,26 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   private cooldownReady(entityId: string): boolean {
     return !this.cooldowns.has(entityId);
+  }
+
+  private consumeZombieUpdateDt(
+    entityId: string,
+    dtSeconds: number,
+    intervalSeconds: number,
+  ): number | null {
+    if (intervalSeconds <= 0) {
+      this.zombieUpdateAccumulatedDt.delete(entityId);
+      return dtSeconds;
+    }
+
+    const accumulated = (this.zombieUpdateAccumulatedDt.get(entityId) ?? 0) + dtSeconds;
+    if (accumulated < intervalSeconds) {
+      this.zombieUpdateAccumulatedDt.set(entityId, accumulated);
+      return null;
+    }
+
+    this.zombieUpdateAccumulatedDt.set(entityId, 0);
+    return accumulated;
   }
 
   private setCooldown(entityId: string, seconds: number): void {

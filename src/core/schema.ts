@@ -140,6 +140,9 @@ export interface BrainComponent {
   archetype: "player" | "zombie" | "civilian" | "turret" | "collector";
   aggroRadius?: number;
   homeZoneId?: string;
+  activityRadius?: number;
+  sleepRadius?: number;
+  farThinkIntervalSeconds?: number;
 }
 
 export interface CameraRigComponent {
@@ -163,9 +166,27 @@ export interface EntityComponents {
   cameraRig?: CameraRigComponent;
 }
 
+export type PrefabCategory =
+  | "terrain"
+  | "road"
+  | "actor"
+  | "building"
+  | "loot"
+  | "prop"
+  | "other";
+
+export interface PrefabPlacementHints {
+  defaultHeight?: number;
+  minScale?: number;
+  maxScale?: number;
+}
+
 export interface PrefabSpec {
   id: string;
   name: string;
+  category?: PrefabCategory;
+  description?: string;
+  placement?: PrefabPlacementHints;
   tags?: string[];
   transform?: Partial<Transform>;
   components?: EntityComponents;

@@ -624,6 +624,8 @@ async function bootstrap(): Promise<void> {
       appendEvent(`Cannot place unknown prefab '${prefabId}'.`);
       return;
     }
+    const placementScale = readNumber(authoringScaleInput.value, 1);
+    const placementHeight = (prefab.placement?.defaultHeight ?? inferPlacementHeight(prefabId)) * placementScale;
 
     const entityId = `${prefabId}.placed.${placedEntityCounter++}`;
     store.apply([
@@ -634,12 +636,12 @@ async function bootstrap(): Promise<void> {
           name: `${prefab.name} ${placedEntityCounter - 1}`,
           prefabId,
           transform: {
-            position: makeVec3(x, inferPlacementHeight(prefabId), z),
+            position: makeVec3(x, placementHeight, z),
             rotation: makeVec3(0, (readNumber(authoringYawInput.value, 0) * Math.PI) / 180, 0),
             scale: makeVec3(
-              readNumber(authoringScaleInput.value, 1),
-              readNumber(authoringScaleInput.value, 1),
-              readNumber(authoringScaleInput.value, 1),
+              placementScale,
+              placementScale,
+              placementScale,
             ),
           },
         },
@@ -1407,10 +1409,12 @@ function renderSceneInventory(
       return entity.id === "player" || entity.tags?.includes("enemy") || entity.prefabId?.includes("zombie") || entity.prefabId?.includes("player");
     }
     if (filter === "buildings") {
-      return entity.prefabId?.includes("building") || entity.name.toLowerCase().includes("building");
+      const category = entity.prefabId ? world.prefabs[entity.prefabId]?.category : undefined;
+      return category === "building" || entity.prefabId?.includes("building") || entity.name.toLowerCase().includes("building");
     }
     if (filter === "loot") {
-      return entity.prefabId?.includes("crate") || entity.name.toLowerCase().includes("crate");
+      const category = entity.prefabId ? world.prefabs[entity.prefabId]?.category : undefined;
+      return category === "loot" || entity.prefabId?.includes("crate") || entity.name.toLowerCase().includes("crate");
     }
     return false;
   };
@@ -1482,7 +1486,7 @@ function renderPrefabPalette(
 ): string {
   const groups = new Map<string, string[]>();
   for (const prefabId of Object.keys(world.prefabs).sort()) {
-    const group = categorizePrefab(prefabId);
+    const group = categorizePrefab(world.prefabs[prefabId]?.category, prefabId);
     const bucket = groups.get(group) ?? [];
     bucket.push(prefabId);
     groups.set(group, bucket);
@@ -1510,7 +1514,22 @@ function renderPrefabPalette(
     .join("");
 }
 
-function categorizePrefab(prefabId: string): string {
+function categorizePrefab(category: string | undefined, prefabId: string): string {
+  switch (category) {
+    case "actor":
+      return "Actors";
+    case "building":
+      return "Buildings";
+    case "loot":
+      return "Loot";
+    case "terrain":
+    case "road":
+      return "Environment";
+    case "prop":
+      return "Props";
+    default:
+      break;
+  }
   const normalized = prefabId.toLowerCase();
   if (normalized.includes("player") || normalized.includes("zombie") || normalized.includes("npc")) {
     return "Actors";

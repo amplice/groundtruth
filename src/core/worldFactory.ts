@@ -21,6 +21,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     ground_tile: {
       id: "ground_tile",
       name: "Ground Tile",
+      category: "terrain",
+      description: "Large flat walkable ground slab.",
+      placement: {
+        defaultHeight: -0.5,
+        minScale: 1,
+        maxScale: 20,
+      },
       components: {
         render: {
           type: "primitive",
@@ -40,6 +47,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     road_strip: {
       id: "road_strip",
       name: "Road Strip",
+      category: "road",
+      description: "Flat road segment for open-world layouts.",
+      placement: {
+        defaultHeight: 0.1,
+        minScale: 1,
+        maxScale: 20,
+      },
       components: {
         render: {
           type: "primitive",
@@ -59,6 +73,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     player_survivor: {
       id: "player_survivor",
       name: "Player Survivor",
+      category: "actor",
+      description: "Playable survivor with third-person camera and melee combat.",
+      placement: {
+        defaultHeight: 1.1,
+        minScale: 0.75,
+        maxScale: 1.5,
+      },
       tags: ["player", "survivor"],
       components: {
         render: {
@@ -146,6 +167,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     zombie_basic: {
       id: "zombie_basic",
       name: "Zombie",
+      category: "actor",
+      description: "Default infected NPC tuned for activity-bubble updates.",
+      placement: {
+        defaultHeight: 1.1,
+        minScale: 0.8,
+        maxScale: 1.4,
+      },
       tags: ["enemy", "infected"],
       components: {
         render: {
@@ -218,13 +246,23 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
         brain: {
           archetype: "zombie",
           aggroRadius: 14,
+          activityRadius: 18,
           homeZoneId: "graveyard",
+          sleepRadius: 44,
+          farThinkIntervalSeconds: 0.35,
         },
       },
     },
     shack_building: {
       id: "shack_building",
       name: "Shack Building",
+      category: "building",
+      description: "Small building footprint for outposts and compounds.",
+      placement: {
+        defaultHeight: 1.6,
+        minScale: 0.7,
+        maxScale: 2.2,
+      },
       components: {
         render: {
           type: "primitive",
@@ -244,6 +282,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     warehouse_building: {
       id: "warehouse_building",
       name: "Warehouse Building",
+      category: "building",
+      description: "Large rectangular building shell.",
+      placement: {
+        defaultHeight: 2.5,
+        minScale: 0.8,
+        maxScale: 2.5,
+      },
       components: {
         render: {
           type: "primitive",
@@ -263,6 +308,13 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
     loot_crate: {
       id: "loot_crate",
       name: "Loot Crate",
+      category: "loot",
+      description: "Basic lootable container with starter supplies.",
+      placement: {
+        defaultHeight: 0.5,
+        minScale: 0.75,
+        maxScale: 1.5,
+      },
       tags: ["loot", "container"],
       components: {
         render: {
