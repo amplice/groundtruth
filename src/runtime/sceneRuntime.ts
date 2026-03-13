@@ -58,6 +58,14 @@ interface HealthBarState {
   max: number;
 }
 
+interface WorldLabelState {
+  element: HTMLDivElement;
+  targetType: "entity" | "zone";
+  targetId: string;
+  offsetY: number;
+  position?: THREE.Vector3;
+}
+
 export interface AssetClipReport {
   state: string;
   clipName: string;
@@ -149,6 +157,10 @@ export class SceneRuntime {
 
   private readonly healthBars = new Map<string, HealthBarState>();
 
+  private readonly labelLayer: HTMLDivElement;
+
+  private readonly worldLabels = new Map<string, WorldLabelState>();
+
   private readonly dangerOverlay: HTMLDivElement;
 
   private playerDangerLevel = 0;
@@ -189,6 +201,9 @@ export class SceneRuntime {
     this.healthBarLayer = document.createElement("div");
     this.healthBarLayer.className = "scene-health-layer";
     mount.appendChild(this.healthBarLayer);
+    this.labelLayer = document.createElement("div");
+    this.labelLayer.className = "scene-label-layer";
+    mount.appendChild(this.labelLayer);
     this.dangerOverlay = document.createElement("div");
     this.dangerOverlay.className = "scene-danger-overlay";
     mount.appendChild(this.dangerOverlay);
@@ -241,6 +256,7 @@ export class SceneRuntime {
     this.flashStates.clear();
     this.clearFloatingMarkers();
     this.clearHealthBars();
+    this.clearWorldLabels();
     this.playerDangerLevel = 0;
     this.dangerOverlay.style.opacity = "0";
 
@@ -259,6 +275,8 @@ export class SceneRuntime {
     for (const zone of world.zones) {
       this.zoneGroup.add(this.buildZoneObject(zone));
     }
+
+    this.rebuildWorldLabels(world);
 
     this.setSelection(this.selectedEntityId, this.selectedZoneId);
     this.rebuildSectorOverlay();
@@ -291,6 +309,7 @@ export class SceneRuntime {
     this.tickFlashStates(dtSeconds);
     this.tickFloatingMarkers(dtSeconds);
     this.tickHealthBars();
+    this.tickWorldLabels();
     this.tickDangerOverlay();
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
@@ -966,6 +985,124 @@ export class SceneRuntime {
     this.healthBars.clear();
   }
 
+  private rebuildWorldLabels(world: WorldDocument): void {
+    this.clearWorldLabels();
+
+    for (const item of world.entities) {
+      const entity = resolveEntity(world, item);
+      const entityLabel = describeEntityLabel(entity);
+      if (!entityLabel) {
+        continue;
+      }
+      this.createWorldLabel({
+        key: `entity:${entity.id}`,
+        targetType: "entity",
+        targetId: entity.id,
+        offsetY: entityLabel.offsetY,
+        title: entityLabel.title,
+        detail: entityLabel.detail,
+        tone: entityLabel.tone,
+      });
+    }
+
+    for (const zone of world.zones) {
+      const zoneLabel = describeZoneLabel(zone);
+      if (!zoneLabel) {
+        continue;
+      }
+      this.createWorldLabel({
+        key: `zone:${zone.id}`,
+        targetType: "zone",
+        targetId: zone.id,
+        offsetY: zoneLabel.offsetY,
+        position: new THREE.Vector3(
+          zone.transform.position.x,
+          zone.transform.position.y + zoneLabel.offsetY,
+          zone.transform.position.z,
+        ),
+        title: zoneLabel.title,
+        detail: zoneLabel.detail,
+        tone: zoneLabel.tone,
+      });
+    }
+  }
+
+  private createWorldLabel(options: {
+    key: string;
+    targetType: "entity" | "zone";
+    targetId: string;
+    offsetY: number;
+    title: string;
+    detail?: string;
+    tone: string;
+    position?: THREE.Vector3;
+  }): void {
+    const element = document.createElement("div");
+    element.className = `world-label ${options.tone}`;
+    const title = document.createElement("span");
+    title.className = "world-label-title";
+    title.textContent = options.title;
+    element.appendChild(title);
+    if (options.detail) {
+      const detail = document.createElement("span");
+      detail.className = "world-label-detail";
+      detail.textContent = options.detail;
+      element.appendChild(detail);
+    }
+    this.labelLayer.appendChild(element);
+    this.worldLabels.set(options.key, {
+      element,
+      targetType: options.targetType,
+      targetId: options.targetId,
+      offsetY: options.offsetY,
+      position: options.position,
+    });
+  }
+
+  private tickWorldLabels(): void {
+    const playerObject = this.entityMap.get("player");
+    const playerPosition = playerObject?.getWorldPosition(new THREE.Vector3()) ?? null;
+
+    for (const [key, label] of this.worldLabels) {
+      let worldPosition = label.position?.clone();
+      if (!worldPosition) {
+        const object = this.entityMap.get(label.targetId);
+        if (!object) {
+          label.element.remove();
+          this.worldLabels.delete(key);
+          continue;
+        }
+        worldPosition = object.getWorldPosition(new THREE.Vector3());
+        worldPosition.y += label.offsetY;
+      }
+
+      const projected = worldPosition.project(this.camera);
+      const x = ((projected.x + 1) * 0.5) * this.mount.clientWidth;
+      const y = ((1 - projected.y) * 0.5) * this.mount.clientHeight;
+      const cameraDistance = this.camera.position.distanceTo(worldPosition);
+      const playerDistance = playerPosition ? playerPosition.distanceTo(worldPosition) : Number.POSITIVE_INFINITY;
+      const selected = label.targetType === "entity"
+        ? label.targetId === this.selectedEntityId
+        : label.targetId === this.selectedZoneId;
+      const visible = projected.z > -1
+        && projected.z < 1
+        && (selected || shouldShowWorldLabel(label, cameraDistance, playerDistance));
+      label.element.style.display = visible ? "flex" : "none";
+      if (!visible) {
+        continue;
+      }
+      label.element.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`;
+      label.element.style.opacity = selected ? "1" : "0.88";
+    }
+  }
+
+  private clearWorldLabels(): void {
+    for (const label of this.worldLabels.values()) {
+      label.element.remove();
+    }
+    this.worldLabels.clear();
+  }
+
   private applyVisualState(
     object: THREE.Object3D,
     entityId: string,
@@ -1526,6 +1663,74 @@ function shouldShowHealthBar(
     return true;
   }
   return bar.current < bar.max || bar.current <= 0;
+}
+
+function describeEntityLabel(entity: ResolvedEntity): {
+  title: string;
+  detail?: string;
+  tone: string;
+  offsetY: number;
+} | null {
+  if (entity.id === "player") {
+    return {
+      title: "Player",
+      detail: "Controlled actor",
+      tone: "tone-player",
+      offsetY: 2.8,
+    };
+  }
+  if (entity.components.interaction?.kind === "loot") {
+    return {
+      title: entity.name,
+      detail: entity.components.interaction.prompt,
+      tone: "tone-loot",
+      offsetY: 1.7,
+    };
+  }
+  if (entity.components.interaction) {
+    return {
+      title: entity.name,
+      detail: entity.components.interaction.prompt,
+      tone: "tone-interact",
+      offsetY: 1.7,
+    };
+  }
+  return null;
+}
+
+function describeZoneLabel(zone: ZoneSpec): {
+  title: string;
+  detail?: string;
+  tone: string;
+  offsetY: number;
+} | null {
+  if (zone.kind === "objective" || zone.kind === "spawn" || zone.kind === "safe") {
+    return {
+      title: zone.name,
+      detail: `${zone.kind} zone`,
+      tone:
+        zone.kind === "safe"
+          ? "tone-safe"
+          : zone.kind === "objective"
+            ? "tone-objective"
+            : "tone-spawn",
+      offsetY: zone.shape.type === "sphere"
+        ? zone.shape.radius + 1.8
+        : (zone.shape.size.y * 0.5) + 1.4,
+    };
+  }
+  return null;
+}
+
+function shouldShowWorldLabel(
+  label: WorldLabelState,
+  cameraDistance: number,
+  playerDistance: number,
+): boolean {
+  if (label.targetType === "entity") {
+    return playerDistance <= 12 || cameraDistance <= 18;
+  }
+  return cameraDistance <= 90;
 }
 
 function parseSectorKey(key: string): { x: number; z: number } {

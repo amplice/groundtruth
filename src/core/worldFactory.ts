@@ -70,6 +70,33 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
         },
       },
     },
+    cover_barrier: {
+      id: "cover_barrier",
+      name: "Cover Barrier",
+      category: "prop",
+      description: "Low waist-high cover for readable combat spaces and arenas.",
+      placement: {
+        defaultHeight: 0.7,
+        minScale: 0.8,
+        maxScale: 3,
+      },
+      tags: ["cover"],
+      components: {
+        render: {
+          type: "primitive",
+          primitive: "box",
+          size: makeVec3(4.5, 1.4, 1.2),
+          color: "#6f6a64",
+        },
+        physics: {
+          body: "static",
+          shape: {
+            type: "box",
+            size: makeVec3(4.5, 1.4, 1.2),
+          },
+        },
+      },
+    },
     platform_block: {
       id: "platform_block",
       name: "Platform Block",

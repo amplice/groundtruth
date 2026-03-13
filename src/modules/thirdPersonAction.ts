@@ -2,12 +2,18 @@ import {
   ActionDefinition,
   AnimationComponent,
   AnimationLoopMode,
+  CameraRigComponent,
   EntitySpec,
   InventoryComponent,
   ResolvedEntity,
   Vec3,
   resolveEntity,
 } from "../core/schema";
+import {
+  ActionModulePreset,
+  PLATFORMER_ACTION_PRESET,
+  THIRD_PERSON_ACTION_PRESET,
+} from "./actionModulePresets";
 import { ModuleContext, RuntimeModule } from "./types";
 
 interface AnimationLock {
@@ -22,8 +28,8 @@ interface MotionSample {
 
 type HostileActivityTier = "active" | "throttled" | "sleeping";
 
-export class ThirdPersonActionModule implements RuntimeModule {
-  readonly id: RuntimeModule["id"] = "third_person";
+export class PresetActionModule implements RuntimeModule {
+  readonly id: RuntimeModule["id"];
 
   protected readonly cooldowns = new Map<string, number>();
 
@@ -48,6 +54,14 @@ export class ThirdPersonActionModule implements RuntimeModule {
     throttled: 0,
     sleeping: 0,
   };
+
+  protected readonly verticalVelocity = new Map<string, number>();
+
+  protected readonly groundedState = new Map<string, boolean>();
+
+  constructor(protected readonly preset: ActionModulePreset) {
+    this.id = preset.id;
+  }
 
   update(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
@@ -143,6 +157,18 @@ export class ThirdPersonActionModule implements RuntimeModule {
     sprintSpeed: number | undefined,
     cameraRig: ResolvedEntity["components"]["cameraRig"],
   ): void {
+    switch (this.preset.playerMovementMode) {
+      case "top_down":
+        this.updateTopDownPlayerMovement(dtSeconds, context, playerId, moveSpeed, sprintSpeed);
+        return;
+      case "platformer":
+        this.updatePlatformerPlayerMovement(dtSeconds, context, playerId, moveSpeed, sprintSpeed);
+        return;
+      default:
+        break;
+    }
+
+    const activeCameraRig = this.resolveCameraRig(cameraRig);
     const axes = context.input.movementAxes();
     const length = Math.hypot(axes.x, axes.z);
     const resolvedPlayer = resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, playerId));
@@ -152,11 +178,13 @@ export class ThirdPersonActionModule implements RuntimeModule {
       : null;
     if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
       this.syncAnimationState(context, playerId, "idle");
-      context.scene.updateFollowCamera(playerId, cameraRig);
+      context.scene.updateFollowCamera(playerId, activeCameraRig);
       return;
     }
 
-    const speed = axes.sprint ? sprintSpeed ?? moveSpeed * 1.5 : moveSpeed;
+    const speed = axes.sprint
+      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.5)
+      : moveSpeed;
     const basis = context.scene.getMovementBasis();
     const dirX = (basis.right.x * axes.x + basis.forward.x * axes.z) / length;
     const dirZ = (basis.right.z * axes.x + basis.forward.z * axes.z) / length;
@@ -183,7 +211,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
       position: movement.position,
       rotation,
     });
-    context.scene.updateFollowCamera(playerId, cameraRig);
+    context.scene.updateFollowCamera(playerId, activeCameraRig);
   }
 
   protected tryPlayerAttack(context: ModuleContext, playerId: string): void {
@@ -299,6 +327,11 @@ export class ThirdPersonActionModule implements RuntimeModule {
     context: ModuleContext,
     playerId: string,
   ): void {
+    if (this.preset.hostileBehavior === "lane_2d") {
+      this.updateLaneHostiles(dtSeconds, context, playerId);
+      return;
+    }
+
     const world = context.store.peekWorld();
     const player = world.entities.find((entity) => entity.id === playerId);
     if (!player) {
@@ -416,6 +449,274 @@ export class ThirdPersonActionModule implements RuntimeModule {
         rotation,
       });
       this.recordHostileMotion(entity.id, movement.position, true, updateDt);
+    }
+  }
+
+  protected updateTopDownPlayerMovement(
+    dtSeconds: number,
+    context: ModuleContext,
+    playerId: string,
+    moveSpeed: number,
+    sprintSpeed: number | undefined,
+  ): void {
+    const axes = context.input.movementAxes();
+    const length = Math.hypot(axes.x, axes.z);
+    const resolvedPlayer = this.resolveEntityById(context, playerId);
+    const currentLock = this.animationLocks.get(playerId);
+    const lockedAction = currentLock
+      ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
+      : null;
+    const cameraRig = this.resolveCameraRig();
+
+    if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
+      this.syncAnimationState(context, playerId, "idle");
+      context.scene.updateFollowCamera(playerId, cameraRig);
+      return;
+    }
+
+    const speed = axes.sprint
+      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.4)
+      : moveSpeed;
+    const dirX = axes.x / length;
+    const dirZ = axes.z / length;
+    const movement = context.physics.moveCharacter(playerId, {
+      x: dirX * speed * dtSeconds,
+      y: 0,
+      z: dirZ * speed * dtSeconds,
+    });
+    if (!movement) {
+      context.scene.updateFollowCamera(playerId, cameraRig);
+      return;
+    }
+
+    this.syncAnimationState(context, playerId, axes.sprint ? "run" : "walk");
+    const rotation = {
+      x: 0,
+      y: Math.atan2(dirX, dirZ),
+      z: 0,
+    };
+    context.store.updateEntityTransform(playerId, {
+      position: movement.position,
+      rotation,
+    });
+    context.scene.updateEntityTransform(playerId, {
+      position: movement.position,
+      rotation,
+    });
+    context.scene.updateFollowCamera(playerId, cameraRig);
+  }
+
+  protected updatePlatformerPlayerMovement(
+    dtSeconds: number,
+    context: ModuleContext,
+    playerId: string,
+    moveSpeed: number,
+    sprintSpeed: number | undefined,
+  ): void {
+    const axes = context.input.movementAxes();
+    const resolvedPlayer = this.resolveEntityById(context, playerId);
+    const currentLock = this.animationLocks.get(playerId);
+    const lockedAction = currentLock
+      ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
+      : null;
+    const jumpPressed = this.preset.jumpKey
+      ? context.input.consumePress(this.preset.jumpKey)
+      : false;
+    const wasGrounded = this.groundedState.get(playerId) ?? false;
+    let velocityY = this.verticalVelocity.get(playerId) ?? 0;
+
+    if (wasGrounded && jumpPressed && !(lockedAction?.lockMovement ?? false)) {
+      velocityY = resolvedPlayer.components.character?.jumpSpeed ?? 7.2;
+      context.scene.spawnFloatingMarker(playerId, "JUMP", "info");
+    }
+
+    velocityY += -20 * dtSeconds;
+    const moveX = axes.x === 0 || (lockedAction?.lockMovement ?? false)
+      ? 0
+      : (axes.x / Math.abs(axes.x))
+        * (axes.sprint
+          ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.3)
+          : moveSpeed);
+    const movement = context.physics.moveCharacter(playerId, {
+      x: moveX * dtSeconds,
+      y: (velocityY * dtSeconds) + (wasGrounded && velocityY <= 0 ? -0.04 : 0),
+      z: 0,
+    });
+    const cameraRig = this.resolveCameraRig();
+
+    if (!movement) {
+      context.scene.updateFollowCamera(playerId, cameraRig);
+      return;
+    }
+
+    const grounded = movement.grounded;
+    if (grounded && velocityY < 0) {
+      velocityY = 0;
+    }
+    this.verticalVelocity.set(playerId, velocityY);
+    this.groundedState.set(playerId, grounded);
+
+    let state: AnimationComponent["state"] = "idle";
+    if (!grounded) {
+      state = "run";
+    } else if (Math.abs(moveX) > 0.001) {
+      state = axes.sprint ? "run" : "walk";
+    }
+    this.syncAnimationState(context, playerId, state);
+
+    const facing = moveX < -0.001
+      ? -Math.PI * 0.5
+      : moveX > 0.001
+        ? Math.PI * 0.5
+        : resolvedPlayer.transform.rotation?.y ?? Math.PI * 0.5;
+    const nextPosition = {
+      x: movement.position.x,
+      y: movement.position.y,
+      z: 0,
+    };
+    context.store.updateEntityTransform(playerId, {
+      position: nextPosition,
+      rotation: {
+        x: 0,
+        y: facing,
+        z: 0,
+      },
+    });
+    context.scene.updateEntityTransform(playerId, {
+      position: nextPosition,
+      rotation: {
+        x: 0,
+        y: facing,
+        z: 0,
+      },
+    });
+    context.scene.updateFollowCamera(playerId, cameraRig);
+  }
+
+  protected updateLaneHostiles(
+    dtSeconds: number,
+    context: ModuleContext,
+    playerId: string,
+  ): void {
+    const world = context.store.peekWorld();
+    const player = world.entities.find((entity) => entity.id === playerId);
+    if (!player) {
+      return;
+    }
+    const resolvedPlayer = resolveEntity(world, player);
+    this.hostileActivityCounts = {
+      active: 0,
+      throttled: 0,
+      sleeping: 0,
+    };
+
+    for (const entity of world.entities) {
+      if (entity.id === playerId) {
+        continue;
+      }
+      const resolved = resolveEntity(world, entity);
+      if (!this.isHostile(resolved)) {
+        continue;
+      }
+
+      if (this.isDead(resolved)) {
+        const deathAction = this.resolveActionDefinition(resolved, "death");
+        this.lockAnimationState(entity.id, deathAction.state, Number.POSITIVE_INFINITY);
+        this.syncAction(context, entity.id, deathAction);
+        continue;
+      }
+
+      const physics = resolved.components.physics;
+      if (!physics || physics.body !== "kinematic") {
+        continue;
+      }
+
+      const dx = resolvedPlayer.transform.position.x - resolved.transform.position.x;
+      const verticalGap = Math.abs(resolvedPlayer.transform.position.y - resolved.transform.position.y);
+      const distance = Math.abs(dx);
+      const aggroRadius = resolved.components.brain?.aggroRadius ?? 12;
+      const activityTier = distance <= aggroRadius
+        ? "active"
+        : distance <= aggroRadius + 10
+          ? "throttled"
+          : "sleeping";
+      this.hostileActivityTiers.set(entity.id, activityTier);
+      this.hostileActivityCounts[activityTier] += 1;
+
+      if (activityTier === "sleeping" || verticalGap > 3.5 || this.isDead(resolvedPlayer)) {
+        this.syncAnimationState(context, entity.id, "idle");
+        this.recordHostileMotion(entity.id, resolved.transform.position, false, dtSeconds);
+        continue;
+      }
+
+      const updateDt = this.consumeHostileUpdateDt(
+        entity.id,
+        dtSeconds,
+        activityTier === "throttled" ? resolved.components.brain?.farThinkIntervalSeconds ?? 0.35 : 0,
+      );
+      if (updateDt === null) {
+        continue;
+      }
+
+      const combat = resolved.components.combat;
+      const attackRange = combat?.range ?? 0;
+      if (combat && distance <= attackRange && this.cooldownReady(entity.id)) {
+        const attackAction = this.resolveActionDefinition(resolved, "attack");
+        const attackDuration = this.resolveActionDuration(context, entity.id, attackAction);
+        this.applyDamage(context, playerId, combat.damage);
+        this.setCooldown(entity.id, combat.cooldownSeconds);
+        this.lockAnimationState(entity.id, "attack", attackDuration);
+        this.syncAction(context, entity.id, attackAction);
+        this.pushEvent(`${resolved.name} hit player for ${combat.damage}.`);
+        this.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
+        continue;
+      }
+
+      const currentLock = this.animationLocks.get(entity.id);
+      const lockedAction = currentLock
+        ? this.resolveActionDefinition(resolved, currentLock.state)
+        : null;
+      if ((lockedAction?.lockMovement ?? false) || distance > aggroRadius) {
+        this.syncAnimationState(context, entity.id, "idle");
+        this.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
+        continue;
+      }
+
+      const speed = resolved.components.character?.moveSpeed ?? 2.2;
+      const direction = dx < 0 ? -1 : 1;
+      const movement = context.physics.moveCharacter(entity.id, {
+        x: direction * speed * updateDt,
+        y: -0.03,
+        z: 0,
+      });
+      if (!movement) {
+        this.recordHostileMotion(entity.id, resolved.transform.position, true, updateDt);
+        continue;
+      }
+
+      const nextPosition: Vec3 = {
+        x: movement.position.x,
+        y: movement.position.y,
+        z: 0,
+      };
+      this.syncAnimationState(context, entity.id, "walk");
+      context.store.updateEntityTransform(entity.id, {
+        position: nextPosition,
+        rotation: {
+          x: 0,
+          y: direction < 0 ? -Math.PI * 0.5 : Math.PI * 0.5,
+          z: 0,
+        },
+      });
+      context.scene.updateEntityTransform(entity.id, {
+        position: nextPosition,
+        rotation: {
+          x: 0,
+          y: direction < 0 ? -Math.PI * 0.5 : Math.PI * 0.5,
+          z: 0,
+        },
+      });
+      this.recordHostileMotion(entity.id, nextPosition, true, updateDt);
     }
   }
 
@@ -819,16 +1120,38 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return entity;
   }
 
+  protected resolveEntityById(context: ModuleContext, entityId: string): ResolvedEntity {
+    return resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, entityId));
+  }
+
+  protected resolveCameraRig(
+    entityRig?: ResolvedEntity["components"]["cameraRig"],
+  ): CameraRigComponent {
+    return entityRig ?? this.preset.cameraRig;
+  }
+
   protected getControlLine(): string {
-    return "WASD move | Shift sprint | Space attack | E interact";
+    return this.preset.controlLine;
   }
 
   protected getIdlePrompt(): string {
-    return "Use generated worlds as a third-person action sandbox.";
+    return this.preset.idlePrompt;
   }
 
   protected getAttackKey(): string {
-    return "Space";
+    return this.preset.attackKey;
+  }
+}
+
+export class ThirdPersonActionModule extends PresetActionModule {
+  constructor() {
+    super(THIRD_PERSON_ACTION_PRESET);
+  }
+}
+
+export class PlatformerActionModule extends PresetActionModule {
+  constructor() {
+    super(PLATFORMER_ACTION_PRESET);
   }
 }
 

@@ -9,6 +9,7 @@ import {
   makeFlatOutpostWorld,
   makeThirdPersonSurvivalWorld,
 } from "./core/sampleWorld";
+import { getActionModulePreset } from "./modules/actionModulePresets";
 import { WorldStore } from "./core/worldStore";
 import { createRuntimeModule, listRuntimeModules } from "./modules/registry";
 import { InputController } from "./runtime/input";
@@ -1400,63 +1401,21 @@ function applyGameModeTuning(world: WorldDocument): WorldDocument {
     };
   }
 
-  if (nextWorld.gameMode === "platformer" && !nextWorld.entities.some((entity) => entity.id.startsWith("platform.template."))) {
-    nextWorld.entities.push(...buildPlatformerTemplatePlatforms(nextWorld));
-  }
-
-  if (nextWorld.gameMode === "platformer") {
-    let hostileIndex = 0;
-    let lootIndex = 0;
-    for (const entity of nextWorld.entities) {
-      const tags = entity.tags ?? [];
-      const isPlayer = entity.id === "player";
-      const isHostile = tags.includes("enemy");
-      const isLoot = tags.includes("loot") || entity.prefabId === "loot_crate";
-      if (!(isPlayer || isHostile || isLoot)) {
-        continue;
-      }
-      entity.transform.position.z = 0;
-      if (isPlayer) {
-        entity.transform.position.x = -36;
-        entity.transform.position.y = 1.1;
-      } else if (isHostile) {
-        entity.transform.position.x = -6 + (hostileIndex * 10);
-        entity.transform.position.y = hostileIndex % 2 === 0 ? 1.1 : 4.7;
-        hostileIndex += 1;
-      } else if (isLoot) {
-        entity.transform.position.x = -16 + (lootIndex * 20);
-        entity.transform.position.y = lootIndex % 2 === 0 ? 2.5 : 7.1;
-        lootIndex += 1;
-      }
-    }
+  const actionPreset = getActionModulePreset(nextWorld.gameMode);
+  if (actionPreset) {
+    applyActionWorldLayout(nextWorld, actionPreset.worldLayout);
   }
 
   return nextWorld;
 }
 
 function resolveCameraRigForMode(gameMode: GameMode) {
+  const actionPreset = getActionModulePreset(gameMode);
+  if (actionPreset) {
+    return actionPreset.cameraRig;
+  }
+
   switch (gameMode) {
-    case "top_down":
-      return {
-        mode: "top_down" as const,
-        distance: 24,
-        pitch: 1.35,
-        yaw: 0,
-      };
-    case "platformer":
-      return {
-        mode: "follow" as const,
-        distance: 13.5,
-        pitch: 0.12,
-        yaw: -Math.PI * 0.5,
-      };
-    case "third_person":
-      return {
-        mode: "follow" as const,
-        distance: 8.5,
-        pitch: 0.55,
-        yaw: 0.75,
-      };
     default:
       return undefined;
   }
@@ -1502,6 +1461,269 @@ function buildPlatformerTemplatePlatforms(world: WorldDocument) {
       },
     },
   ];
+}
+
+function applyActionWorldLayout(
+  world: WorldDocument,
+  layout: "third_person" | "top_down" | "platformer",
+): void {
+  switch (layout) {
+    case "third_person":
+      stampThirdPersonArena(world);
+      return;
+    case "top_down":
+      stampTopDownArena(world);
+      return;
+    case "platformer":
+      stampPlatformerLane(world);
+      return;
+    default:
+      return;
+  }
+}
+
+function stampThirdPersonArena(world: WorldDocument): void {
+  ensureTemplateEntities(world, "arena.tp.", buildThirdPersonArenaTemplates());
+  const player = world.entities.find((entity) => entity.id === "player");
+  if (player) {
+    player.transform.position = makeVec3(0, 1.2, -8);
+    player.transform.rotation = makeVec3(0, 0, 0);
+  }
+
+  nudgeEntitiesOutOfCenter(world, 18, (entity) => isBuildingEntity(world, entity));
+
+  const hostiles = world.entities.filter((entity) => isHostileEntity(entity));
+  const crates = world.entities.filter((entity) => isLootEntity(world, entity));
+  const hostileSlots = [
+    makeVec3(-8, 1.1, 8),
+    makeVec3(0, 1.1, 12),
+    makeVec3(8, 1.1, 8),
+    makeVec3(-12, 1.1, 18),
+    makeVec3(12, 1.1, 18),
+    makeVec3(0, 1.1, 24),
+  ];
+  const crateSlots = [
+    makeVec3(-10, 0.5, -1.5),
+    makeVec3(10, 0.5, -1.5),
+    makeVec3(-16, 0.5, 8),
+    makeVec3(16, 0.5, 8),
+  ];
+  assignTemplateSlots(hostiles, hostileSlots);
+  assignTemplateSlots(crates, crateSlots);
+}
+
+function stampTopDownArena(world: WorldDocument): void {
+  ensureTemplateEntities(world, "arena.td.", buildTopDownArenaTemplates());
+  const player = world.entities.find((entity) => entity.id === "player");
+  if (player) {
+    player.transform.position = makeVec3(0, 1.2, 0);
+    player.transform.rotation = makeVec3(0, 0, 0);
+  }
+
+  nudgeEntitiesOutOfCenter(world, 22, (entity) => isBuildingEntity(world, entity));
+
+  const hostiles = world.entities.filter((entity) => isHostileEntity(entity));
+  const crates = world.entities.filter((entity) => isLootEntity(world, entity));
+  assignTemplateSlots(hostiles, buildRingSlots(8, 15, 1.1, Math.PI * 0.25));
+  assignTemplateSlots(crates, buildRingSlots(4, 8, 0.5, Math.PI * 0.25));
+}
+
+function stampPlatformerLane(world: WorldDocument): void {
+  ensureTemplateEntities(world, "platform.template.", buildPlatformerTemplatePlatforms(world));
+
+  let hostileIndex = 0;
+  let lootIndex = 0;
+  for (const entity of world.entities) {
+    const isPlayer = entity.id === "player";
+    const isHostile = isHostileEntity(entity);
+    const isLoot = isLootEntity(world, entity);
+    if (!(isPlayer || isHostile || isLoot)) {
+      continue;
+    }
+    entity.transform.position.z = 0;
+    if (isPlayer) {
+      entity.transform.position.x = -36;
+      entity.transform.position.y = 1.1;
+    } else if (isHostile) {
+      entity.transform.position.x = -6 + (hostileIndex * 10);
+      entity.transform.position.y = hostileIndex % 2 === 0 ? 1.1 : 4.7;
+      hostileIndex += 1;
+    } else if (isLoot) {
+      entity.transform.position.x = -16 + (lootIndex * 20);
+      entity.transform.position.y = lootIndex % 2 === 0 ? 2.5 : 7.1;
+      lootIndex += 1;
+    }
+  }
+}
+
+function ensureTemplateEntities(
+  world: WorldDocument,
+  prefix: string,
+  templates: WorldDocument["entities"],
+): void {
+  if (world.entities.some((entity) => entity.id.startsWith(prefix))) {
+    return;
+  }
+  world.entities.push(...templates);
+}
+
+function buildThirdPersonArenaTemplates(): WorldDocument["entities"] {
+  return [
+    {
+      id: "arena.tp.cover.1",
+      name: "Arena Cover 1",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(-6, 0.7, 2),
+      },
+    },
+    {
+      id: "arena.tp.cover.2",
+      name: "Arena Cover 2",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(6, 0.7, 2),
+      },
+    },
+    {
+      id: "arena.tp.cover.3",
+      name: "Arena Cover 3",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(-10, 0.7, 14),
+        rotation: makeVec3(0, Math.PI * 0.5, 0),
+      },
+    },
+    {
+      id: "arena.tp.cover.4",
+      name: "Arena Cover 4",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(10, 0.7, 14),
+        rotation: makeVec3(0, Math.PI * 0.5, 0),
+      },
+    },
+  ];
+}
+
+function buildTopDownArenaTemplates(): WorldDocument["entities"] {
+  return [
+    {
+      id: "arena.td.cover.1",
+      name: "Topdown Cover North",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(0, 0.7, -6),
+      },
+    },
+    {
+      id: "arena.td.cover.2",
+      name: "Topdown Cover South",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(0, 0.7, 6),
+      },
+    },
+    {
+      id: "arena.td.cover.3",
+      name: "Topdown Cover West",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(-6, 0.7, 0),
+        rotation: makeVec3(0, Math.PI * 0.5, 0),
+      },
+    },
+    {
+      id: "arena.td.cover.4",
+      name: "Topdown Cover East",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(6, 0.7, 0),
+        rotation: makeVec3(0, Math.PI * 0.5, 0),
+      },
+    },
+    {
+      id: "arena.td.cover.5",
+      name: "Topdown Cover Northwest",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(-11, 0.7, -11),
+      },
+    },
+    {
+      id: "arena.td.cover.6",
+      name: "Topdown Cover Southeast",
+      prefabId: "cover_barrier",
+      transform: {
+        position: makeVec3(11, 0.7, 11),
+      },
+    },
+  ];
+}
+
+function buildRingSlots(
+  count: number,
+  radius: number,
+  y: number,
+  phase = 0,
+) {
+  return Array.from({ length: count }, (_, index) => {
+    const angle = phase + ((Math.PI * 2 * index) / count);
+    return makeVec3(Math.cos(angle) * radius, y, Math.sin(angle) * radius);
+  });
+}
+
+function assignTemplateSlots(
+  entities: WorldDocument["entities"],
+  slots: Array<ReturnType<typeof makeVec3>>,
+): void {
+  entities.slice(0, slots.length).forEach((entity, index) => {
+    const slot = slots[index];
+    entity.transform.position = slot;
+    entity.transform.rotation = makeVec3(0, Math.atan2(slot.x, slot.z) + Math.PI, 0);
+  });
+}
+
+function nudgeEntitiesOutOfCenter(
+  world: WorldDocument,
+  minRadius: number,
+  predicate: (entity: WorldDocument["entities"][number]) => boolean,
+): void {
+  for (const entity of world.entities) {
+    if (!predicate(entity)) {
+      continue;
+    }
+    const distance = Math.hypot(entity.transform.position.x, entity.transform.position.z);
+    if (distance >= minRadius) {
+      continue;
+    }
+    const angle = Math.atan2(
+      entity.transform.position.z || 0.0001,
+      entity.transform.position.x || 0.0001,
+    );
+    entity.transform.position.x = Math.cos(angle) * minRadius;
+    entity.transform.position.z = Math.sin(angle) * minRadius;
+  }
+}
+
+function isHostileEntity(entity: WorldDocument["entities"][number]): boolean {
+  return (entity.tags ?? []).includes("enemy") || entity.prefabId === "zombie_basic";
+}
+
+function isLootEntity(
+  world: WorldDocument,
+  entity: WorldDocument["entities"][number],
+): boolean {
+  const category = entity.prefabId ? world.prefabs[entity.prefabId]?.category : undefined;
+  return category === "loot" || entity.prefabId === "loot_crate" || (entity.tags ?? []).includes("loot");
+}
+
+function isBuildingEntity(
+  world: WorldDocument,
+  entity: WorldDocument["entities"][number],
+): boolean {
+  const category = entity.prefabId ? world.prefabs[entity.prefabId]?.category : undefined;
+  return category === "building";
 }
 
 function parseNumber(source: string, fallback: number, minimum: number): number {

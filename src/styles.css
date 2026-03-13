@@ -397,6 +397,13 @@ pre {
   z-index: 4;
 }
 
+.scene-label-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+}
+
 .scene-danger-overlay {
   position: absolute;
   inset: 0;
@@ -406,6 +413,65 @@ pre {
   background:
     radial-gradient(circle at center, rgba(255, 255, 255, 0) 46%, rgba(144, 8, 8, 0.1) 72%, rgba(111, 7, 7, 0.32) 100%);
   transition: opacity 120ms linear;
+}
+
+.world-label {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 7rem;
+  padding: 0.32rem 0.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(12, 20, 28, 0.72);
+  box-shadow: 0 10px 24px rgba(8, 14, 20, 0.18);
+  color: #f4f7fa;
+  text-align: center;
+  white-space: nowrap;
+  transform: translate(-50%, -50%);
+}
+
+.world-label-title {
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.world-label-detail {
+  font-size: 0.62rem;
+  line-height: 1.1;
+  opacity: 0.82;
+}
+
+.world-label.tone-player {
+  border-color: rgba(95, 168, 255, 0.36);
+  background: rgba(13, 37, 62, 0.78);
+}
+
+.world-label.tone-loot {
+  border-color: rgba(244, 211, 94, 0.34);
+  background: rgba(61, 43, 10, 0.78);
+}
+
+.world-label.tone-interact {
+  border-color: rgba(139, 215, 255, 0.32);
+  background: rgba(18, 41, 53, 0.76);
+}
+
+.world-label.tone-safe {
+  border-color: rgba(103, 218, 152, 0.34);
+  background: rgba(15, 52, 37, 0.76);
+}
+
+.world-label.tone-spawn {
+  border-color: rgba(255, 133, 113, 0.34);
+  background: rgba(63, 22, 18, 0.76);
+}
+
+.world-label.tone-objective {
+  border-color: rgba(255, 210, 113, 0.34);
+  background: rgba(63, 48, 16, 0.76);
 }
 
 .floating-marker {
