@@ -655,11 +655,11 @@ export class SceneRuntime {
     }
 
     const residentSet = new Set(this.currentSectorOverlay.residentSectorKeys);
-    const hotSet = new Map(this.currentSectorOverlay.hotSectors.map((sector) => [sector.sectorKey, sector]));
+    const trackedSet = new Map(this.currentSectorOverlay.trackedSectors.map((sector) => [sector.sectorKey, sector]));
     const allSectorKeys = new Set<string>([
       this.currentSectorOverlay.centerSector,
       ...this.currentSectorOverlay.residentSectorKeys,
-      ...this.currentSectorOverlay.hotSectors.map((sector) => sector.sectorKey),
+      ...this.currentSectorOverlay.trackedSectors.map((sector) => sector.sectorKey),
     ]);
 
     for (const sectorKey of allSectorKeys) {
@@ -670,15 +670,29 @@ export class SceneRuntime {
       };
       const isCenter = sectorKey === this.currentSectorOverlay.centerSector;
       const isResident = residentSet.has(sectorKey);
-      const hot = hotSet.get(sectorKey);
+      const tracked = trackedSet.get(sectorKey);
       const color = isCenter
         ? 0x55d0ff
-        : hot
-          ? 0xff9959
-          : isResident
-            ? 0x3b82f6
-            : 0x7e8a94;
-      const opacity = isCenter ? 0.95 : hot ? 0.72 : isResident ? 0.45 : 0.26;
+        : isResident
+          ? 0x3b82f6
+          : tracked?.status === "active"
+            ? 0xff9959
+            : tracked?.status === "dormant"
+              ? 0xd69133
+              : tracked?.status === "recent"
+                ? 0x72c26f
+                : 0x7e8a94;
+      const opacity = isCenter
+        ? 0.95
+        : isResident
+          ? 0.5
+          : tracked?.status === "active"
+            ? 0.82
+            : tracked?.status === "dormant"
+              ? 0.64
+              : tracked?.status === "recent"
+                ? 0.44
+                : 0.22;
       this.sectorGroup.add(
         this.buildSectorOutline(
           center.x,

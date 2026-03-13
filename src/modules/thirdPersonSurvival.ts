@@ -69,7 +69,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     }
 
     const resolvedPlayer = resolveEntity(world, player);
-    if (this.sectorPopulation.reconcile(context.store, world, resolvedPlayer.transform.position)) {
+    if (this.sectorPopulation.reconcile(context.store, world, resolvedPlayer.transform.position, dtSeconds)) {
       const populationStats = this.sectorPopulation.getStats();
       this.pushEvent(
         `Sector population swap: +${populationStats.lastActivated} activated, -${populationStats.lastParked} parked.`,

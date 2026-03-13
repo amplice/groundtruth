@@ -2,7 +2,7 @@ import "./styles.css";
 
 import { parseCommandScript } from "./core/commands";
 import { evaluateWorld } from "./core/evaluation";
-import { ModelRenderComponent, ZoneSpec, makeVec3, resolveEntity } from "./core/schema";
+import { ModelRenderComponent, ZoneSpec, emptyWorld, makeVec3, resolveEntity } from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
@@ -10,7 +10,7 @@ import {
   makeThirdPersonSurvivalWorld,
 } from "./core/sampleWorld";
 import { WorldStore } from "./core/worldStore";
-import { ThirdPersonSurvivalModule } from "./modules/thirdPersonSurvival";
+import { createRuntimeModule, listRuntimeModules } from "./modules/registry";
 import { InputController } from "./runtime/input";
 import { PhysicsRuntime } from "./runtime/physicsRuntime";
 import { SceneRuntime, SelectionTarget } from "./runtime/sceneRuntime";
@@ -30,6 +30,11 @@ async function bootstrap(): Promise<void> {
           <p>Browser-first semantic runtime for AI-native 3D games.</p>
         </div>
         <div class="controls">
+          <label>
+            <span>Game Mode</span>
+            <select id="game-mode-template"></select>
+          </label>
+          <button id="load-empty" class="secondary">New Empty World</button>
           <button id="load-generated">Generate Flat Outpost</button>
           <button id="load-scale-test">Generate Scale Test</button>
           <button id="load-sample">Load Survival Slice</button>
@@ -315,6 +320,7 @@ async function bootstrap(): Promise<void> {
   const screenshotPreview = root.querySelector<HTMLImageElement>("#screenshot-preview");
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
+  const gameModeTemplateInput = root.querySelector<HTMLSelectElement>("#game-mode-template");
   const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
   const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
   const authoringScaleInput = root.querySelector<HTMLInputElement>("#authoring-scale");
@@ -358,6 +364,7 @@ async function bootstrap(): Promise<void> {
     !screenshotPreview ||
     !playtestHud ||
     !snapshotFileInput ||
+    !gameModeTemplateInput ||
     !authoringModeInput ||
     !authoringPrefabInput ||
     !authoringScaleInput ||
@@ -398,7 +405,7 @@ async function bootstrap(): Promise<void> {
   });
   const physics = await PhysicsRuntime.create(store.getWorld().settings.gravity.y);
   const input = new InputController();
-  const runtimeModule = new ThirdPersonSurvivalModule();
+  let runtimeModule = createRuntimeModule(store.getWorld().gameMode);
   let lastFrameTime = performance.now();
   let sidebarCollapsed = false;
   let pendingWorldRebuild = false;
@@ -414,6 +421,7 @@ async function bootstrap(): Promise<void> {
   let selectedZoneId: string | null = null;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
+  const moduleDescriptors = listRuntimeModules();
 
   const appendEvent = (message: string): void => {
     const line = `${new Date().toLocaleTimeString()} | ${message}`;
@@ -421,6 +429,30 @@ async function bootstrap(): Promise<void> {
     if (runtimeEvents.length > 40) {
       runtimeEvents.length = 40;
     }
+  };
+
+  const ensureRuntimeModule = (): void => {
+    const nextMode = store.peekWorld().gameMode;
+    if (runtimeModule.id === nextMode) {
+      return;
+    }
+    runtimeModule = createRuntimeModule(nextMode);
+    appendEvent(`Runtime module switched to '${runtimeModule.id}'.`);
+  };
+
+  const stampWorldMode = <T extends ReturnType<WorldStore["getWorld"]>>(world: T): T => {
+    const gameMode = gameModeTemplateInput.value || world.gameMode;
+    return {
+      ...world,
+      gameMode,
+      metadata: {
+        ...world.metadata,
+        name:
+          gameMode === world.gameMode
+            ? world.metadata.name
+            : `${world.metadata.name} [${gameMode}]`,
+      },
+    };
   };
 
   const getSelectedZone = (world = store.peekWorld()) =>
@@ -632,6 +664,19 @@ async function bootstrap(): Promise<void> {
       .join("");
     authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0] ?? "";
     authoringPaletteNode.innerHTML = renderPrefabPalette(world, authoringPrefabInput.value);
+  };
+
+  const syncGameModeTemplate = (): void => {
+    gameModeTemplateInput.innerHTML = moduleDescriptors
+      .map(
+        (descriptor) =>
+          `<option value="${escapeHtml(descriptor.id)}">${escapeHtml(descriptor.label)}${descriptor.implemented ? "" : " (sandbox)"}</option>`,
+      )
+      .join("");
+    const currentMode = store.peekWorld().gameMode;
+    gameModeTemplateInput.value = moduleDescriptors.some((descriptor) => descriptor.id === currentMode)
+      ? currentMode
+      : "third_person_survival";
   };
 
   const placePrefabAt = (prefabId: string, x: number, z: number): void => {
@@ -882,9 +927,14 @@ async function bootstrap(): Promise<void> {
   });
 
   const refreshSidebar = (): void => {
+    ensureRuntimeModule();
     const world = store.getWorld();
     const diagnostics = store.getDiagnostics();
     const evaluation = evaluateWorld(world);
+    const currentModuleDescriptor =
+      moduleDescriptors.find((descriptor) => descriptor.id === world.gameMode) ??
+      moduleDescriptors.find((descriptor) => descriptor.id === "third_person_survival");
+    const implementedModuleCount = moduleDescriptors.filter((descriptor) => descriptor.implemented).length;
     const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
     const worldDebugLines = runtimeModule.getWorldDebug?.(world) ?? [];
     const sectorOverlay = runtimeModule.getSectorOverlay?.() ?? null;
@@ -917,7 +967,7 @@ async function bootstrap(): Promise<void> {
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     scene.setSectorOverlay(sectorOverlay);
-    sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
+    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedZone,
@@ -956,20 +1006,22 @@ async function bootstrap(): Promise<void> {
       store.getCommandIssues().join("\n") ||
       "No command issues.\nUse Generate Flat Outpost for a procedural world seed, or load the authored survival slice.";
     const renderStats = scene.getStats();
-    runtimeStatsNode.textContent = [
-      `Mode: ${world.gameMode}`,
-      `Swap: ${worldSwapState}`,
-      `Draw calls: ${renderStats.drawCalls}`,
-      `Triangles: ${renderStats.triangleCount}`,
-      `Objects: ${renderStats.objectCount}`,
-      `Sectors: ${diagnostics.occupiedSectorCount}`,
-      `Physics colliders: ${physics.getColliderCount()}`,
-      `Physics syncs: ${physicsStats.syncCount}`,
-      `Retired worlds: ${physicsStats.retiredWorlds}`,
+      runtimeStatsNode.textContent = [
+        `Mode: ${world.gameMode}`,
+        `Swap: ${worldSwapState}`,
+        `Draw calls: ${renderStats.drawCalls}`,
+        `Triangles: ${renderStats.triangleCount}`,
+        `Objects: ${renderStats.objectCount}`,
+        `Sectors: ${diagnostics.occupiedSectorCount} occupied / ${diagnostics.simulatedSectorCount} tracked`,
+        `Pooled actors: ${diagnostics.pooledActorCount}`,
+        `Physics colliders: ${physics.getColliderCount()}`,
+        `Physics syncs: ${physicsStats.syncCount}`,
+        `Retired worlds: ${physicsStats.retiredWorlds}`,
       `Eval warnings: ${evaluation.counts.warn}`,
       `Eval errors: ${evaluation.counts.error}`,
       `Module: ${runtimeModule.id}`,
     ].join(" | ");
+    syncGameModeTemplate();
     syncAuthoringPrefabs();
     syncSelectedZoneInputs();
   };
@@ -977,6 +1029,7 @@ async function bootstrap(): Promise<void> {
   const rebuildWorld = (): void => {
     const world = store.getWorld();
     try {
+      ensureRuntimeModule();
       worldSwapState = "rebuilding";
       physics.syncWorld(world);
       scene.setWorld(world);
@@ -993,13 +1046,13 @@ async function bootstrap(): Promise<void> {
 
   const buildGeneratedWorld = (): void => {
     store.setWorld(
-      makeFlatOutpostWorld({
+      stampWorldMode(makeFlatOutpostWorld({
         seed: parseNumber(seedInput.value, defaultFlatWorldOptions.seed, 1),
         worldHalfExtent: parseNumber(sizeInput.value, defaultFlatWorldOptions.worldHalfExtent, 24),
         buildingCount: parseNumber(buildingInput.value, defaultFlatWorldOptions.buildingCount, 1),
         zombieCount: parseNumber(zombieInput.value, defaultFlatWorldOptions.zombieCount, 0),
         crateCount: parseNumber(crateInput.value, defaultFlatWorldOptions.crateCount, 0),
-      }),
+      })),
     );
     appendEvent("Requested generated flat outpost world.");
   };
@@ -1012,13 +1065,13 @@ async function bootstrap(): Promise<void> {
     zombieInput.value = "240";
     crateInput.value = "18";
     store.setWorld(
-      makeFlatOutpostWorld({
+      stampWorldMode(makeFlatOutpostWorld({
         seed: scaleSeed,
         worldHalfExtent: 180,
         buildingCount: 28,
         zombieCount: 240,
         crateCount: 18,
-      }),
+      })),
     );
     appendEvent("Requested scale-test outpost world.");
   };
@@ -1173,6 +1226,20 @@ async function bootstrap(): Promise<void> {
     buildScaleTestWorld();
   });
 
+  root.querySelector<HTMLButtonElement>("#load-empty")?.addEventListener("click", () => {
+    store.setWorld(
+      stampWorldMode({
+        ...emptyWorld(),
+        metadata: {
+          id: "groundtruth.world.empty.authored",
+          name: "Authored Empty World",
+          description: "Blank semantic world for authoring from scratch.",
+        },
+      }),
+    );
+    appendEvent(`Requested empty world for '${gameModeTemplateInput.value}'.`);
+  });
+
   root.querySelector<HTMLButtonElement>("#load-sample")?.addEventListener("click", () => {
     store.setWorld(makeThirdPersonSurvivalWorld());
     appendEvent("Requested authored survival slice.");
@@ -1272,6 +1339,7 @@ async function bootstrap(): Promise<void> {
   sceneSearchInput.addEventListener("input", refreshSidebar);
   sceneFilterInput.addEventListener("change", refreshSidebar);
   syncSidebarState();
+  syncGameModeTemplate();
   syncAuthoringPrefabs();
   syncAuthoringMode();
   syncModelTuningInputs(true);
@@ -1299,10 +1367,11 @@ async function bootstrap(): Promise<void> {
       requestAnimationFrame(animate);
       return;
     }
-    try {
-      runtimeModule.update(dtSeconds, {
-        store,
-        scene,
+      try {
+        ensureRuntimeModule();
+        runtimeModule.update(dtSeconds, {
+          store,
+          scene,
         physics,
         input,
       });

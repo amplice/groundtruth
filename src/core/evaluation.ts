@@ -73,6 +73,7 @@ export function evaluateWorld(world: WorldDocument): EvaluationReport {
   evaluateSceneryOverlaps(entities, findings);
   evaluateZones(world, entities, player ?? null, spawnZones, safeZones, findings);
   evaluateSectorDensity(world, entities, findings);
+  evaluateSimulationSectors(world, findings);
   if (player) {
     evaluateReachability(entities, player, spawnZones, safeZones, lootEntities, findings);
   }
@@ -132,6 +133,43 @@ function evaluateSectorDensity(
         message: `Sector ${sectorKey} contains ${count} zombies.`,
       });
     }
+  }
+}
+
+function evaluateSimulationSectors(
+  world: WorldDocument,
+  findings: EvaluationFinding[],
+): void {
+  const overloadedPools = world.simulation.sectorPools
+    .filter((pool) => pool.count >= 18)
+    .sort((left, right) => right.count - left.count)
+    .slice(0, 4);
+  for (const pool of overloadedPools) {
+    findings.push({
+      severity: "warn",
+      code: "sector_pool_pressure",
+      message: `Sector ${pool.sectorKey} is carrying a pooled far-field group of ${pool.count} ${pool.prefabId} actors.`,
+    });
+  }
+
+  const activeHotSectors = world.simulation.sectorStates.filter(
+    (sector) => sector.status === "active" && sector.liveCount + sector.pooledCount >= 10,
+  );
+  for (const sector of activeHotSectors.slice(0, 4)) {
+    findings.push({
+      severity: "warn",
+      code: "active_sector_pressure",
+      message: `Active sector ${sector.sectorKey} is under pressure with ${sector.liveCount} live and ${sector.pooledCount} pooled actors.`,
+    });
+  }
+
+  const depletedCount = world.simulation.sectorStates.filter((sector) => sector.status === "depleted").length;
+  if (depletedCount >= 6) {
+    findings.push({
+      severity: "info",
+      code: "depleted_sectors",
+      message: `World has ${depletedCount} tracked depleted sectors.`,
+    });
   }
 }
 

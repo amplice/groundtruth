@@ -2,6 +2,9 @@ import { WorldCommand } from "../core/commands";
 import {
   EntityComponents,
   EntitySpec,
+  SectorLifecycleState,
+  SectorPoolSnapshot,
+  SectorStateSnapshot,
   ZoneSpec,
   WorldDocument,
   sectorCoordForPoint,
@@ -29,14 +32,29 @@ interface SectorSpawnPool {
 
 interface SectorDebugRecord {
   sectorKey: string;
+  status: SectorLifecycleState;
+  live: number;
   pooled: number;
   dormant: number;
+  recentSeconds: number;
 }
 
 export class SectorPopulationManager {
+  private static readonly ACTIVATION_BUDGET_PER_SECTOR = 8;
+
+  private static readonly RESIDENT_TARGET_PER_SECTOR = 6;
+
+  private static readonly RESIDENT_TOP_UP_PER_SECTOR = 3;
+
+  private static readonly RESIDENT_TOP_UP_INTERVAL_SECONDS = 1.2;
+
+  private static readonly RECENT_STATE_SECONDS = 8;
+
   private readonly dormantEntities = new Map<string, EntitySpec>();
 
   private readonly sectorPools = new Map<string, SectorSpawnPool>();
+
+  private readonly sectorStates = new Map<string, SectorStateSnapshot>();
 
   private trackedRevision: number | null = null;
 
@@ -49,6 +67,8 @@ export class SectorPopulationManager {
   private spawnCounter = 1;
 
   private currentSectorSize = 1;
+
+  private residentTopUpElapsedSeconds = 0;
 
   private stats: SectorPopulationStats = {
     centerSector: "n/a",
@@ -63,9 +83,12 @@ export class SectorPopulationManager {
     store: WorldStore,
     world: WorldDocument,
     center: { x: number; y: number; z: number },
+    dtSeconds: number,
     sectorRadius = 2,
   ): boolean {
-    this.syncRevision(store.getWorldRevision());
+    this.syncRevision(store.getWorldRevision(), world);
+    this.residentTopUpElapsedSeconds += dtSeconds;
+    const decayedStateChanged = this.decaySectorStates(dtSeconds);
 
     const sectorSize = world.settings.sectorSize;
     this.currentSectorSize = sectorSize;
@@ -77,72 +100,104 @@ export class SectorPopulationManager {
       }
     }
     const signature = [...residentKeys].sort().join("|");
+    const signatureChanged = signature !== this.residentSignature;
     this.residentSectorKeys = [...residentKeys].sort();
     this.stats.centerSector = `${centerCoord.x}:${centerCoord.z}`;
     this.stats.residentSectorCount = residentKeys.size;
 
-    if (signature === this.residentSignature) {
+    if (!signatureChanged && this.residentTopUpElapsedSeconds < SectorPopulationManager.RESIDENT_TOP_UP_INTERVAL_SECONDS) {
       this.stats.lastActivated = 0;
       this.stats.lastParked = 0;
       this.stats.dormantCount = this.dormantEntities.size;
       this.stats.pooledCount = this.getPooledCount();
+      if (decayedStateChanged) {
+        store.updateSimulation({
+          sectorPools: this.serializePools(),
+          sectorStates: this.serializeSectorStates(),
+        });
+      }
       return false;
     }
 
-    this.residentSignature = signature;
+    if (signatureChanged) {
+      this.residentSignature = signature;
+      this.residentTopUpElapsedSeconds = 0;
+    } else {
+      this.residentTopUpElapsedSeconds = 0;
+    }
+
     const commands: WorldCommand[] = [];
     let parked = 0;
     let activated = 0;
+    let poolsChanged = false;
+    let sectorStateChanged = false;
+    const liveResidentCounts = this.countManagedResidentEntities(world, residentKeys, sectorSize);
 
-    for (const entity of world.entities) {
-      if (!this.isManagedEntity(world, entity)) {
-        continue;
+    if (signatureChanged) {
+      for (const entity of world.entities) {
+        if (!this.isManagedEntity(world, entity)) {
+          continue;
+        }
+        const sectorKey = sectorKeyForPoint(entity.transform.position, sectorSize);
+        if (residentKeys.has(sectorKey)) {
+          this.dormantEntities.delete(entity.id);
+          continue;
+        }
+        if (this.canPoolEntity(world, entity)) {
+          this.addEntityToPool(world, entity, sectorKey);
+          poolsChanged = true;
+        } else {
+          this.dormantEntities.set(entity.id, cloneEntity(entity));
+        }
+        commands.push({ op: "delete_entity", entityId: entity.id });
+        parked += 1;
       }
-      const sectorKey = sectorKeyForPoint(entity.transform.position, sectorSize);
-      if (residentKeys.has(sectorKey)) {
-        this.dormantEntities.delete(entity.id);
-        continue;
-      }
-      if (this.canPoolEntity(world, entity)) {
-        this.addEntityToPool(world, entity, sectorKey);
-      } else {
-        this.dormantEntities.set(entity.id, cloneEntity(entity));
-      }
-      commands.push({ op: "delete_entity", entityId: entity.id });
-      parked += 1;
-    }
 
-    for (const [entityId, entity] of [...this.dormantEntities.entries()]) {
-      const sectorKey = sectorKeyForPoint(entity.transform.position, sectorSize);
-      if (!residentKeys.has(sectorKey)) {
-        continue;
-      }
-      commands.push({ op: "spawn_entity", entity: cloneEntity(entity) });
-      this.dormantEntities.delete(entityId);
-      activated += 1;
-    }
-
-    for (const [poolKey, pool] of [...this.sectorPools.entries()]) {
-      if (!residentKeys.has(pool.sectorKey)) {
-        continue;
-      }
-      const spawnZone = pool.homeZoneId
-        ? world.zones.find((zone) => zone.id === pool.homeZoneId) ?? null
-        : null;
-      for (let index = 0; index < pool.count; index += 1) {
-        commands.push({
-          op: "spawn_entity",
-          entity: this.spawnEntityFromPool(world, pool, spawnZone, index),
-        });
+      for (const [entityId, entity] of [...this.dormantEntities.entries()]) {
+        const sectorKey = sectorKeyForPoint(entity.transform.position, sectorSize);
+        if (!residentKeys.has(sectorKey)) {
+          continue;
+        }
+        commands.push({ op: "spawn_entity", entity: cloneEntity(entity) });
+        this.dormantEntities.delete(entityId);
         activated += 1;
+        liveResidentCounts.set(sectorKey, (liveResidentCounts.get(sectorKey) ?? 0) + 1);
       }
-      this.sectorPools.delete(poolKey);
+
+      const burstActivations = this.activateResidentPools(
+        world,
+        residentKeys,
+        liveResidentCounts,
+        SectorPopulationManager.ACTIVATION_BUDGET_PER_SECTOR,
+        commands,
+      );
+      activated += burstActivations;
+      poolsChanged = poolsChanged || burstActivations > 0;
+    } else {
+      const topUpActivations = this.activateResidentPools(
+        world,
+        residentKeys,
+        liveResidentCounts,
+        SectorPopulationManager.RESIDENT_TOP_UP_PER_SECTOR,
+        commands,
+      );
+      activated += topUpActivations;
+      poolsChanged = topUpActivations > 0;
     }
 
     this.stats.lastActivated = activated;
     this.stats.lastParked = parked;
     this.stats.dormantCount = this.dormantEntities.size;
     this.stats.pooledCount = this.getPooledCount();
+
+    sectorStateChanged = this.refreshSectorStates(residentKeys, liveResidentCounts) || sectorStateChanged;
+
+    if (poolsChanged || sectorStateChanged) {
+      store.updateSimulation({
+        sectorPools: this.serializePools(),
+        sectorStates: this.serializeSectorStates(),
+      });
+    }
 
     if (commands.length === 0) {
       return false;
@@ -161,11 +216,7 @@ export class SectorPopulationManager {
 
   getDebugLines(limit = 6): string[] {
     const sectorRecords = this.buildSectorRecords()
-      .sort((left, right) => {
-        const leftTotal = left.pooled + left.dormant;
-        const rightTotal = right.pooled + right.dormant;
-        return rightTotal - leftTotal;
-      })
+      .sort((left, right) => (right.live + right.pooled + right.dormant) - (left.live + left.pooled + left.dormant))
       .slice(0, limit);
 
     const lines = [
@@ -183,7 +234,7 @@ export class SectorPopulationManager {
 
     for (const record of sectorRecords) {
       lines.push(
-        `Sector ${record.sectorKey}: ${record.pooled} pooled, ${record.dormant} dormant`,
+        `Sector ${record.sectorKey} [${record.status}]: live ${record.live}, pooled ${record.pooled}, dormant ${record.dormant}`,
       );
     }
     return lines;
@@ -193,25 +244,29 @@ export class SectorPopulationManager {
     if (this.stats.centerSector === "n/a") {
       return null;
     }
-    const hotSectors = this.buildSectorRecords()
-      .sort((left, right) => (right.pooled + right.dormant) - (left.pooled + left.dormant))
+    const trackedSectors = this.buildSectorRecords()
+      .sort((left, right) => (right.live + right.pooled + right.dormant) - (left.live + left.pooled + left.dormant))
       .slice(0, limit)
-      .filter((record) => record.pooled > 0 || record.dormant > 0)
+      .filter((record) => record.pooled > 0 || record.dormant > 0 || record.live > 0 || record.status !== "depleted")
       .map((record) => ({
         sectorKey: record.sectorKey,
+        status: record.status,
+        live: record.live,
         pooled: record.pooled,
         dormant: record.dormant,
+        recentSeconds: record.recentSeconds,
       }));
     return {
       sectorSize: this.currentSectorSize,
       centerSector: this.stats.centerSector,
       residentSectorKeys: [...this.residentSectorKeys],
-      hotSectors,
+      trackedSectors,
     };
   }
 
-  private syncRevision(currentRevision: number): void {
+  private syncRevision(currentRevision: number, world: WorldDocument): void {
     if (this.trackedRevision === null) {
+      this.hydrateFromWorld(world);
       this.trackedRevision = currentRevision;
       return;
     }
@@ -222,14 +277,18 @@ export class SectorPopulationManager {
     }
     if (currentRevision !== this.trackedRevision) {
       this.reset();
+      this.hydrateFromWorld(world);
       this.trackedRevision = currentRevision;
     }
   }
 
   private reset(): void {
     this.dormantEntities.clear();
+    this.sectorPools.clear();
+    this.sectorStates.clear();
     this.residentSignature = "";
     this.residentSectorKeys = [];
+    this.residentTopUpElapsedSeconds = 0;
     this.stats = {
       centerSector: "n/a",
       residentSectorCount: 0,
@@ -240,10 +299,32 @@ export class SectorPopulationManager {
     };
   }
 
+  private hydrateFromWorld(world: WorldDocument): void {
+    this.sectorPools.clear();
+    for (const pool of world.simulation?.sectorPools ?? []) {
+      this.sectorPools.set(this.poolMapKey(pool), {
+        sectorKey: pool.sectorKey,
+        prefabId: pool.prefabId,
+        count: pool.count,
+        homeZoneId: pool.homeZoneId,
+        groundY: pool.groundY,
+      });
+    }
+    this.sectorStates.clear();
+    for (const sectorState of world.simulation?.sectorStates ?? []) {
+      this.sectorStates.set(sectorState.sectorKey, {
+        ...sectorState,
+      });
+    }
+    this.stats.pooledCount = this.getPooledCount();
+  }
+
   private isManagedEntity(world: WorldDocument, entity: EntitySpec): boolean {
     const prefabBrain = entity.prefabId ? world.prefabs[entity.prefabId]?.components?.brain : undefined;
     const brain = entity.components?.brain ?? prefabBrain;
-    const health = entity.components?.health ?? (entity.prefabId ? world.prefabs[entity.prefabId]?.components?.health : undefined);
+    const health =
+      entity.components?.health ??
+      (entity.prefabId ? world.prefabs[entity.prefabId]?.components?.health : undefined);
     return brain?.archetype === "zombie" && (health?.current ?? 1) > 0;
   }
 
@@ -270,8 +351,14 @@ export class SectorPopulationManager {
   }
 
   private addEntityToPool(world: WorldDocument, entity: EntitySpec, sectorKey: string): void {
-    const homeZoneId = entity.components?.brain?.homeZoneId ?? (entity.prefabId ? world.prefabs[entity.prefabId]?.components?.brain?.homeZoneId : undefined);
-    const poolKey = `${sectorKey}|${entity.prefabId}|${homeZoneId ?? "none"}`;
+    const homeZoneId =
+      entity.components?.brain?.homeZoneId ??
+      (entity.prefabId ? world.prefabs[entity.prefabId]?.components?.brain?.homeZoneId : undefined);
+    const poolKey = this.poolMapKey({
+      sectorKey,
+      prefabId: entity.prefabId ?? "unknown",
+      homeZoneId,
+    });
     const existing = this.sectorPools.get(poolKey);
     if (existing) {
       existing.count += 1;
@@ -284,6 +371,48 @@ export class SectorPopulationManager {
       homeZoneId,
       groundY: entity.transform.position.y,
     });
+  }
+
+  private activateResidentPools(
+    world: WorldDocument,
+    residentKeys: Set<string>,
+    liveResidentCounts: Map<string, number>,
+    perSectorBudget: number,
+    commands: WorldCommand[],
+  ): number {
+    let activated = 0;
+    for (const [poolKey, pool] of [...this.sectorPools.entries()]) {
+      if (!residentKeys.has(pool.sectorKey)) {
+        continue;
+      }
+      const liveCount = liveResidentCounts.get(pool.sectorKey) ?? 0;
+      const remainingTarget = Math.max(
+        0,
+        SectorPopulationManager.RESIDENT_TARGET_PER_SECTOR - liveCount,
+      );
+      const toSpawn = Math.min(pool.count, perSectorBudget, remainingTarget);
+      if (toSpawn <= 0) {
+        continue;
+      }
+      const spawnZone = pool.homeZoneId
+        ? world.zones.find((zone) => zone.id === pool.homeZoneId) ?? null
+        : null;
+      for (let index = 0; index < toSpawn; index += 1) {
+        commands.push({
+          op: "spawn_entity",
+          entity: this.spawnEntityFromPool(world, pool, spawnZone, index),
+        });
+        activated += 1;
+      }
+      pool.count -= toSpawn;
+      liveResidentCounts.set(pool.sectorKey, liveCount + toSpawn);
+      if (pool.count <= 0) {
+        this.sectorPools.delete(poolKey);
+      } else {
+        this.sectorPools.set(poolKey, pool);
+      }
+    }
+    return activated;
   }
 
   private spawnEntityFromPool(
@@ -307,16 +436,17 @@ export class SectorPopulationManager {
     const z = baseZ + Math.sin(angle) * distance;
     const id = `zombie.pooled.${this.spawnCounter++}`;
     const prefabBrain = world.prefabs[pool.prefabId]?.components?.brain;
-    const nextComponents: EntityComponents | undefined = pool.homeZoneId || prefabBrain?.homeZoneId
-      ? {
-          brain: {
-            ...(prefabBrain ?? {
-              archetype: "zombie",
-            }),
-            homeZoneId: pool.homeZoneId ?? prefabBrain?.homeZoneId,
-          },
-        }
-      : undefined;
+    const nextComponents: EntityComponents | undefined =
+      pool.homeZoneId || prefabBrain?.homeZoneId
+        ? {
+            brain: {
+              ...(prefabBrain ?? {
+                archetype: "zombie",
+              }),
+              homeZoneId: pool.homeZoneId ?? prefabBrain?.homeZoneId,
+            },
+          }
+        : undefined;
     return {
       id,
       name: id.replaceAll(".", " "),
@@ -340,28 +470,194 @@ export class SectorPopulationManager {
     return total;
   }
 
+  private decaySectorStates(dtSeconds: number): boolean {
+    if (dtSeconds <= 0) {
+      return false;
+    }
+    let changed = false;
+    for (const [sectorKey, state] of this.sectorStates.entries()) {
+      const nextRecentSeconds = Math.max(0, state.recentSeconds - dtSeconds);
+      const nextStatus: SectorLifecycleState =
+        state.liveCount > 0
+          ? "active"
+          : state.pooledCount + state.dormantCount > 0
+            ? "dormant"
+            : nextRecentSeconds > 0
+              ? "recent"
+              : "depleted";
+      const nextState: SectorStateSnapshot = {
+        ...state,
+        recentSeconds: nextRecentSeconds,
+        status: nextStatus,
+      };
+      if (!sameSectorState(state, nextState)) {
+        changed = true;
+      }
+      this.sectorStates.set(sectorKey, nextState);
+    }
+    return changed;
+  }
+
+  private serializePools(): SectorPoolSnapshot[] {
+    return [...this.sectorPools.values()].map((pool) => ({
+      sectorKey: pool.sectorKey,
+      prefabId: pool.prefabId,
+      count: pool.count,
+      homeZoneId: pool.homeZoneId,
+      groundY: pool.groundY,
+    }));
+  }
+
+  private serializeSectorStates(): SectorStateSnapshot[] {
+    return [...this.sectorStates.values()].map((state) => ({
+      ...state,
+    }));
+  }
+
+  private refreshSectorStates(
+    residentKeys: Set<string>,
+    liveResidentCounts: Map<string, number>,
+  ): boolean {
+    const records = this.buildSectorRecords();
+    const recordMap = new Map(records.map((record) => [record.sectorKey, record]));
+    const keys = new Set<string>([
+      ...this.sectorStates.keys(),
+      ...residentKeys,
+      ...recordMap.keys(),
+    ]);
+    const desiredKeys = new Set<string>();
+    let changed = false;
+
+    for (const sectorKey of keys) {
+      const existing = this.sectorStates.get(sectorKey);
+      const record = recordMap.get(sectorKey);
+      const liveCount = residentKeys.has(sectorKey) ? (liveResidentCounts.get(sectorKey) ?? 0) : 0;
+      const pooledCount = record?.pooled ?? 0;
+      const dormantCount = record?.dormant ?? 0;
+      let recentSeconds = existing?.recentSeconds ?? 0;
+      if (residentKeys.has(sectorKey) || liveCount > 0) {
+        recentSeconds = SectorPopulationManager.RECENT_STATE_SECONDS;
+      }
+
+      const status: SectorLifecycleState =
+        residentKeys.has(sectorKey) || liveCount > 0
+          ? "active"
+          : pooledCount + dormantCount > 0
+            ? "dormant"
+            : recentSeconds > 0
+              ? "recent"
+              : "depleted";
+
+      if (
+        !existing &&
+        status === "depleted" &&
+        pooledCount === 0 &&
+        dormantCount === 0 &&
+        liveCount === 0
+      ) {
+        continue;
+      }
+
+      const nextState: SectorStateSnapshot = {
+        sectorKey,
+        status,
+        pooledCount,
+        dormantCount,
+        liveCount,
+        recentSeconds,
+      };
+      desiredKeys.add(sectorKey);
+
+      if (!existing || !sameSectorState(existing, nextState)) {
+        this.sectorStates.set(sectorKey, nextState);
+        changed = true;
+      }
+    }
+
+    for (const [sectorKey, state] of [...this.sectorStates.entries()]) {
+      if (
+        state.status === "depleted" &&
+        state.pooledCount === 0 &&
+        state.dormantCount === 0 &&
+        state.liveCount === 0 &&
+        state.recentSeconds <= 0 &&
+        !desiredKeys.has(sectorKey)
+      ) {
+        this.sectorStates.delete(sectorKey);
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
+
+  private countManagedResidentEntities(
+    world: WorldDocument,
+    residentKeys: Set<string>,
+    sectorSize: number,
+  ): Map<string, number> {
+    const counts = new Map<string, number>();
+    for (const entity of world.entities) {
+      if (!this.isManagedEntity(world, entity)) {
+        continue;
+      }
+      const sectorKey = sectorKeyForPoint(entity.transform.position, sectorSize);
+      if (!residentKeys.has(sectorKey)) {
+        continue;
+      }
+      counts.set(sectorKey, (counts.get(sectorKey) ?? 0) + 1);
+    }
+    return counts;
+  }
+
   private buildSectorRecords(): SectorDebugRecord[] {
     const records = new Map<string, SectorDebugRecord>();
+    for (const state of this.sectorStates.values()) {
+      records.set(state.sectorKey, {
+        sectorKey: state.sectorKey,
+        status: state.status,
+        live: state.liveCount,
+        pooled: state.pooledCount,
+        dormant: state.dormantCount,
+        recentSeconds: state.recentSeconds,
+      });
+    }
     for (const entity of this.dormantEntities.values()) {
       const sectorKey = sectorKeyForPoint(entity.transform.position, this.currentSectorSize);
       const record = records.get(sectorKey) ?? {
         sectorKey,
+        status: "dormant",
+        live: 0,
         pooled: 0,
         dormant: 0,
+        recentSeconds: 0,
       };
       record.dormant += 1;
+      if (record.status === "depleted") {
+        record.status = "dormant";
+      }
       records.set(record.sectorKey, record);
     }
     for (const pool of this.sectorPools.values()) {
       const record = records.get(pool.sectorKey) ?? {
         sectorKey: pool.sectorKey,
+        status: "dormant",
+        live: 0,
         pooled: 0,
         dormant: 0,
+        recentSeconds: 0,
       };
       record.pooled += pool.count;
+      if (record.status === "depleted") {
+        record.status = "dormant";
+      }
       records.set(record.sectorKey, record);
     }
     return [...records.values()];
+  }
+
+  private poolMapKey(pool: Pick<SectorSpawnPool, "sectorKey" | "prefabId" | "homeZoneId">): string {
+    return `${pool.sectorKey}|${pool.prefabId}|${pool.homeZoneId ?? "none"}`;
   }
 }
 
@@ -375,4 +671,15 @@ function parseSectorKey(key: string): { x: number; z: number } {
     x: Number.parseInt(rawX ?? "0", 10) || 0,
     z: Number.parseInt(rawZ ?? "0", 10) || 0,
   };
+}
+
+function sameSectorState(left: SectorStateSnapshot, right: SectorStateSnapshot): boolean {
+  return (
+    left.sectorKey === right.sectorKey &&
+    left.status === right.status &&
+    left.pooledCount === right.pooledCount &&
+    left.dormantCount === right.dormantCount &&
+    left.liveCount === right.liveCount &&
+    Math.abs(left.recentSeconds - right.recentSeconds) < 0.01
+  );
 }

@@ -414,6 +414,10 @@ export function makeThirdPersonSurvivalWorld(): WorldDocument {
         tags: ["safe", "trading"],
       },
     ],
+    simulation: {
+      sectorPools: [],
+      sectorStates: [],
+    },
   };
 }
 
@@ -563,6 +567,10 @@ export function makeFlatOutpostWorld(
       ...zombieEntities,
     ],
     zones,
+    simulation: {
+      sectorPools: [],
+      sectorStates: [],
+    },
   };
 }
 

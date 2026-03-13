@@ -238,6 +238,30 @@ export interface WorldSettings {
   sectorSize: number;
 }
 
+export interface SectorPoolSnapshot {
+  sectorKey: string;
+  prefabId: string;
+  count: number;
+  homeZoneId?: string;
+  groundY: number;
+}
+
+export type SectorLifecycleState = "active" | "dormant" | "recent" | "depleted";
+
+export interface SectorStateSnapshot {
+  sectorKey: string;
+  status: SectorLifecycleState;
+  pooledCount: number;
+  dormantCount: number;
+  liveCount: number;
+  recentSeconds: number;
+}
+
+export interface WorldSimulationState {
+  sectorPools: SectorPoolSnapshot[];
+  sectorStates: SectorStateSnapshot[];
+}
+
 export interface WorldDocument {
   metadata: WorldMetadata;
   gameMode: GameMode;
@@ -245,6 +269,7 @@ export interface WorldDocument {
   prefabs: Record<string, PrefabSpec>;
   entities: EntitySpec[];
   zones: ZoneSpec[];
+  simulation: WorldSimulationState;
 }
 
 export interface ResolvedEntity extends EntitySpec {
@@ -265,6 +290,8 @@ export interface WorldDiagnostics {
   combatantCount: number;
   interactiveCount: number;
   occupiedSectorCount: number;
+  simulatedSectorCount: number;
+  pooledActorCount: number;
 }
 
 export function makeVec3(x = 0, y = 0, z = 0): Vec3 {
@@ -295,6 +322,10 @@ export function emptyWorld(): WorldDocument {
     prefabs: {},
     entities: [],
     zones: [],
+    simulation: {
+      sectorPools: [],
+      sectorStates: [],
+    },
   };
 }
 
@@ -336,6 +367,7 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
   let combatantCount = 0;
   let interactiveCount = 0;
   const occupiedSectors = new Set<string>();
+  let pooledActorCount = 0;
 
   for (const entity of world.entities.map((item) => resolveEntity(world, item))) {
     if (entity.components.render) {
@@ -359,6 +391,10 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
     occupiedSectors.add(sectorKeyForPoint(entity.transform.position, world.settings.sectorSize));
   }
 
+  for (const pool of world.simulation.sectorPools) {
+    pooledActorCount += pool.count;
+  }
+
   return {
     worldName: world.metadata.name,
     gameMode: world.gameMode,
@@ -372,6 +408,8 @@ export function computeDiagnostics(world: WorldDocument): WorldDiagnostics {
     combatantCount,
     interactiveCount,
     occupiedSectorCount: occupiedSectors.size,
+    simulatedSectorCount: world.simulation.sectorStates.length,
+    pooledActorCount,
   };
 }
 

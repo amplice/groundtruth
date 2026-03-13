@@ -2,6 +2,7 @@ import { WorldCommand, applyCommands } from "./commands";
 import {
   EntityComponents,
   Transform,
+  WorldSimulationState,
   WorldDocument,
   cloneWorld,
   computeDiagnostics,
@@ -125,6 +126,20 @@ export class WorldStore {
       ...entity.components,
       ...components,
     };
+    if (emit) {
+      this.worldRevision += 1;
+      this.emit("world");
+    }
+  }
+
+  updateSimulation(
+    simulation: WorldSimulationState,
+    emit = false,
+  ): void {
+    this.world.simulation = cloneWorld({
+      ...this.world,
+      simulation,
+    }).simulation;
     if (emit) {
       this.worldRevision += 1;
       this.emit("world");
