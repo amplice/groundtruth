@@ -175,7 +175,6 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
     overrideLine?: string,
   ): void {
     const populationStats = this.sectorPopulation.getStats();
-    const interactive = this.findNearestInteractive(context.store.peekWorld(), player);
     const inventory = player.components.inventory;
     const baseLines = [
       this.getControlLine(),
@@ -184,8 +183,12 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
       `${this.sectorSummary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
     ];
     if (player.components.health) {
-      context.scene.setPlayerDangerLevel(
-        1 - (player.components.health.current / Math.max(1, player.components.health.max)),
+      this.emitFeatureEvent(
+        {
+          type: "player_danger_changed",
+          level: 1 - (player.components.health.current / Math.max(1, player.components.health.max)),
+        },
+        context,
       );
     }
 
@@ -193,9 +196,12 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
       this.statusLines = [...baseLines, overrideLine];
       return;
     }
-    if (interactive?.components.interaction) {
-      this.statusLines = [...baseLines, interactive.components.interaction.prompt];
-      return;
+    for (const feature of this.features) {
+      const statusHint = feature.getStatusHint?.(context, this, player);
+      if (statusHint) {
+        this.statusLines = [...baseLines, statusHint];
+        return;
+      }
     }
     this.statusLines = [...baseLines, this.getIdlePrompt()];
   }

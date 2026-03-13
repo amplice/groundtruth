@@ -33,7 +33,7 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
-  featureIds: [],
+  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.5,
 };
 
@@ -51,7 +51,7 @@ export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
-  featureIds: ["sector_population"],
+  featureIds: ["combat", "combat_feedback", "interaction_inventory", "sector_population"],
   sprintMultiplier: 1.5,
 };
 
@@ -69,7 +69,7 @@ export const TOP_DOWN_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "top_down",
   hostileBehavior: "arena_3d",
   worldLayout: "top_down",
-  featureIds: [],
+  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.4,
 };
 
@@ -88,7 +88,7 @@ export const PLATFORMER_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "platformer",
   hostileBehavior: "lane_2d",
   worldLayout: "platformer",
-  featureIds: [],
+  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.3,
 };
 

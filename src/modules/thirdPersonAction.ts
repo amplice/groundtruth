@@ -4,7 +4,6 @@ import {
   AnimationLoopMode,
   CameraRigComponent,
   EntitySpec,
-  InventoryComponent,
   ResolvedEntity,
   Vec3,
   resolveEntity,
@@ -18,6 +17,7 @@ import { createRuntimeFeatures } from "./runtimeFeatureRegistry";
 import {
   ModuleContext,
   RuntimeFeature,
+  RuntimeFeatureEvent,
   RuntimeFeatureId,
   RuntimeFeatureHost,
   RuntimeModule,
@@ -192,6 +192,12 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return [...this.recentEvents];
   }
 
+  emitFeatureEvent(event: RuntimeFeatureEvent, context: ModuleContext): void {
+    for (const feature of this.features) {
+      feature.onEvent?.(event, context, this);
+    }
+  }
+
   getWorldDebug(world: ReturnType<ModuleContext["store"]["peekWorld"]>): string[] {
     return this.features.flatMap((feature) => feature.getWorldDebug?.(world) ?? []);
   }
@@ -280,111 +286,19 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   }
 
   protected tryPlayerAttack(context: ModuleContext, playerId: string): void {
-    if (!context.input.consumePress(this.getAttackKey()) || !this.cooldownReady(playerId)) {
-      return;
+    for (const feature of this.features) {
+      if (feature.onPlayerAttack?.(context, this, playerId)) {
+        return;
+      }
     }
-
-    const world = context.store.peekWorld();
-    const player = world.entities.find((entity) => entity.id === playerId);
-    if (!player) {
-      return;
-    }
-    const resolvedPlayer = resolveEntity(world, player);
-    const combat = resolvedPlayer.components.combat;
-    if (!combat) {
-      return;
-    }
-
-    const target = this.findNearestHostile(world, resolvedPlayer, combat.range, combat.targetTags);
-    const attackAction = this.resolveActionDefinition(resolvedPlayer, "attack");
-    const attackDuration = this.resolveActionDuration(context, playerId, attackAction);
-    this.setCooldown(playerId, target ? combat.cooldownSeconds : combat.cooldownSeconds * 0.4);
-    this.lockAnimationState(playerId, "attack", attackDuration);
-    this.syncAction(context, playerId, attackAction);
-
-    if (!target) {
-      this.pushEvent("Player attack missed.");
-      this.statusLines = [
-        this.getControlLine(),
-        `Player HP ${this.readHealth(resolvedPlayer)}`,
-        "Attack missed. No hostile in range.",
-      ];
-      return;
-    }
-
-    this.applyDamage(context, target.id, combat.damage);
-    this.pushEvent(`Player hit ${target.name} for ${combat.damage}.`);
   }
 
   protected tryPlayerInteraction(context: ModuleContext, playerId: string): void {
-    if (!context.input.consumePress("KeyE")) {
-      return;
+    for (const feature of this.features) {
+      if (feature.onPlayerInteract?.(context, this, playerId)) {
+        return;
+      }
     }
-
-    const world = context.store.peekWorld();
-    const player = world.entities.find((entity) => entity.id === playerId);
-    if (!player) {
-      return;
-    }
-    const resolvedPlayer = resolveEntity(world, player);
-    const playerInventory = resolvedPlayer.components.inventory;
-    if (!playerInventory) {
-      return;
-    }
-
-    const interactive = this.findNearestInteractive(world, resolvedPlayer);
-    if (!interactive || !interactive.components.interaction) {
-      this.statusLines = [
-        this.getControlLine(),
-        `Player HP ${this.readHealth(resolvedPlayer)}`,
-        "Nothing to interact with.",
-      ];
-      return;
-    }
-
-    if (interactive.components.interaction.kind !== "loot") {
-      this.statusLines = [
-        this.getControlLine(),
-        `Player HP ${this.readHealth(resolvedPlayer)}`,
-        interactive.components.interaction.prompt,
-      ];
-      return;
-    }
-
-    const containerInventory = interactive.components.inventory;
-    if (!containerInventory || containerInventory.itemIds.length === 0) {
-      this.statusLines = [
-        this.getControlLine(),
-        `Player HP ${this.readHealth(resolvedPlayer)}`,
-        `${interactive.name} is empty.`,
-      ];
-      return;
-    }
-    if (playerInventory.itemIds.length >= playerInventory.maxSlots) {
-      this.statusLines = [
-        this.getControlLine(),
-        `Player HP ${this.readHealth(resolvedPlayer)}`,
-        "Inventory full.",
-      ];
-      return;
-    }
-
-    const [itemId, ...remainingItems] = containerInventory.itemIds;
-    const nextPlayerInventory: InventoryComponent = {
-      ...playerInventory,
-      itemIds: [...playerInventory.itemIds, itemId],
-    };
-    const nextContainerInventory: InventoryComponent = {
-      ...containerInventory,
-      itemIds: remainingItems,
-    };
-
-    context.store.updateEntityComponents(playerId, { inventory: nextPlayerInventory });
-    context.store.updateEntityComponents(interactive.id, { inventory: nextContainerInventory });
-    context.scene.flashEntity(interactive.id, "#f4d35e", 0.22, 0.8);
-    context.scene.flashEntity(playerId, "#7cc6fe", 0.16, 0.45);
-    context.scene.spawnFloatingMarker(interactive.id, itemId, "loot");
-    this.pushEvent(`Player looted ${itemId} from ${interactive.name}.`);
   }
 
   protected updateHostiles(
@@ -785,11 +699,17 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     }
   }
 
-  protected applyDamage(
+  applyDamage(
     context: ModuleContext,
     targetId: string,
     amount: number,
   ): void {
+    for (const feature of this.features) {
+      if (feature.onApplyDamage?.(context, this, targetId, amount)) {
+        return;
+      }
+    }
+
     const world = context.store.peekWorld();
     const target = world.entities.find((entity) => entity.id === targetId);
     if (!target) {
@@ -808,19 +728,29 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
         current: nextCurrent,
       },
     });
-    context.scene.updateEntityHealth(targetId, nextCurrent, health.max);
+    this.emitFeatureEvent(
+      {
+        type: "damage_applied",
+        targetId,
+        amount,
+        currentHealth: nextCurrent,
+        maxHealth: health.max,
+      },
+      context,
+    );
 
     if (nextCurrent <= 0) {
       const deathAction = this.resolveActionDefinition(resolvedTarget, "death");
       this.lockAnimationState(targetId, deathAction.state, Number.POSITIVE_INFINITY);
       this.syncAction(context, targetId, deathAction);
-      context.scene.flashEntity(
-        targetId,
-        resolvedTarget.id === "player" ? "#ff9c9c" : "#ffffff",
-        0.32,
-        1,
+      this.emitFeatureEvent(
+        {
+          type: "entity_died",
+          entityId: targetId,
+          wasPlayer: resolvedTarget.id === "player",
+        },
+        context,
       );
-      context.scene.spawnFloatingMarker(targetId, "DOWN", "down");
       this.pushEvent(`${resolvedTarget.name} died.`);
       return;
     }
@@ -832,24 +762,10 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       Math.min(this.resolveActionDuration(context, targetId, hurtAction), 0.45),
     );
     this.syncAction(context, targetId, hurtAction);
-    context.scene.flashEntity(
-      targetId,
-      resolvedTarget.id === "player" ? "#ff8f8f" : "#ff4d4d",
-      resolvedTarget.id === "player" ? 0.24 : 0.18,
-      resolvedTarget.id === "player" ? 0.9 : 1,
-    );
-    context.scene.spawnFloatingMarker(
-      targetId,
-      `-${amount}`,
-      resolvedTarget.id === "player" ? "danger" : "damage",
-    );
-    if (resolvedTarget.id === "player") {
-      context.scene.setPlayerDangerLevel(1 - (nextCurrent / Math.max(1, health.max)));
-    }
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
-  protected findNearestHostile(
+  findNearestHostile(
     world: ReturnType<ModuleContext["store"]["peekWorld"]>,
     source: ResolvedEntity,
     range: number,
@@ -880,7 +796,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return best;
   }
 
-  protected findNearestInteractive(
+  findNearestInteractive(
     world: ReturnType<ModuleContext["store"]["peekWorld"]>,
     source: ResolvedEntity,
   ): ResolvedEntity | null {
@@ -912,7 +828,6 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     player: ResolvedEntity,
     overrideLine?: string,
   ): void {
-    const interactive = this.findNearestInteractive(context.store.peekWorld(), player);
     const inventory = player.components.inventory;
     const baseLines = [
       this.getControlLine(),
@@ -920,16 +835,25 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       `Hostiles ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
     ];
     if (player.components.health) {
-      context.scene.setPlayerDangerLevel(1 - (player.components.health.current / Math.max(1, player.components.health.max)));
+      this.emitFeatureEvent(
+        {
+          type: "player_danger_changed",
+          level: 1 - (player.components.health.current / Math.max(1, player.components.health.max)),
+        },
+        context,
+      );
     }
 
     if (overrideLine) {
       this.statusLines = [...baseLines, overrideLine];
       return;
     }
-    if (interactive?.components.interaction) {
-      this.statusLines = [...baseLines, interactive.components.interaction.prompt];
-      return;
+    for (const feature of this.features) {
+      const statusHint = feature.getStatusHint?.(context, this, player);
+      if (statusHint) {
+        this.statusLines = [...baseLines, statusHint];
+        return;
+      }
     }
     this.statusLines = [...baseLines, this.getIdlePrompt()];
   }
@@ -1062,14 +986,14 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     });
   }
 
-  protected lockAnimationState(entityId: string, state: string, durationSeconds: number): void {
+  lockAnimationState(entityId: string, state: string, durationSeconds: number): void {
     this.animationLocks.set(entityId, {
       state,
       remainingSeconds: durationSeconds,
     });
   }
 
-  protected cooldownReady(entityId: string): boolean {
+  cooldownReady(entityId: string): boolean {
     return !this.cooldowns.has(entityId);
   }
 
@@ -1093,11 +1017,11 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return accumulated;
   }
 
-  protected setCooldown(entityId: string, seconds: number): void {
+  setCooldown(entityId: string, seconds: number): void {
     this.cooldowns.set(entityId, seconds);
   }
 
-  protected pushEvent(message: string): void {
+  pushEvent(message: string): void {
     const line = `${new Date().toLocaleTimeString()} | ${message}`;
     this.recentEvents.unshift(line);
     if (this.recentEvents.length > 24) {
@@ -1105,7 +1029,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     }
   }
 
-  protected resolveActionDuration(
+  resolveActionDuration(
     context: ModuleContext,
     entityId: string,
     action: ActionDefinition,
@@ -1118,7 +1042,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return Math.max(clipDuration / Math.max(speed, 0.01) + 0.06, 0.2);
   }
 
-  protected resolveActionDefinition(entity: ResolvedEntity, actionId: string): ActionDefinition {
+  resolveActionDefinition(entity: ResolvedEntity, actionId: string): ActionDefinition {
     return entity.components.actions?.[actionId] ?? {
       state: actionId,
       loop: this.defaultLoopModeForState(actionId),
@@ -1128,7 +1052,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     };
   }
 
-  protected syncAction(
+  syncAction(
     context: ModuleContext,
     entityId: string,
     action: ActionDefinition,
@@ -1162,7 +1086,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return (entity.components.health?.current ?? 1) <= 0;
   }
 
-  protected readHealth(entity: ResolvedEntity): string {
+  readHealth(entity: ResolvedEntity): string {
     const health = entity.components.health;
     if (!health) {
       return "n/a";
@@ -1185,7 +1109,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return entity;
   }
 
-  protected resolveEntityById(context: ModuleContext, entityId: string): ResolvedEntity {
+  resolveEntityById(context: ModuleContext, entityId: string): ResolvedEntity {
     return resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, entityId));
   }
 
