@@ -383,6 +383,50 @@ pre {
   z-index: 2;
 }
 
+.scene-feedback-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.floating-marker {
+  position: absolute;
+  left: 0;
+  top: 0;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  font-family:
+    "IBM Plex Mono",
+    "Cascadia Code",
+    monospace;
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  color: #fff9f2;
+  background: rgba(22, 28, 35, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, -50%);
+}
+
+.floating-marker.damage {
+  background: rgba(186, 48, 48, 0.82);
+}
+
+.floating-marker.danger {
+  background: rgba(202, 86, 52, 0.88);
+}
+
+.floating-marker.loot {
+  background: rgba(180, 137, 31, 0.85);
+}
+
+.floating-marker.down {
+  background: rgba(71, 84, 97, 0.88);
+}
+
 .hud-card {
   max-width: 300px;
   padding: 0.55rem 0.7rem;

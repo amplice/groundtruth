@@ -335,6 +335,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     context.store.updateEntityComponents(interactive.id, { inventory: nextContainerInventory });
     context.scene.flashEntity(interactive.id, "#f4d35e", 0.22, 0.8);
     context.scene.flashEntity(playerId, "#7cc6fe", 0.16, 0.45);
+    context.scene.spawnFloatingMarker(interactive.id, itemId, "loot");
     this.pushEvent(`Player looted ${itemId} from ${interactive.name}.`);
     this.statusLines = [
       "WASD move | Shift sprint | Space attack | E loot",
@@ -524,6 +525,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
         0.32,
         1,
       );
+      context.scene.spawnFloatingMarker(targetId, "DOWN", "down");
       this.pushEvent(`${resolvedTarget.name} died.`);
       return;
     }
@@ -540,6 +542,11 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       resolvedTarget.id === "player" ? "#ff8f8f" : "#ff4d4d",
       resolvedTarget.id === "player" ? 0.24 : 0.18,
       resolvedTarget.id === "player" ? 0.9 : 1,
+    );
+    context.scene.spawnFloatingMarker(
+      targetId,
+      `-${amount}`,
+      resolvedTarget.id === "player" ? "danger" : "damage",
     );
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }

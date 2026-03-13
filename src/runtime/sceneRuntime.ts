@@ -41,6 +41,15 @@ interface EntityFlashState {
   strength: number;
 }
 
+interface FloatingMarker {
+  element: HTMLDivElement;
+  entityId: string;
+  remainingSeconds: number;
+  durationSeconds: number;
+  worldOffsetY: number;
+  driftY: number;
+}
+
 export interface AssetClipReport {
   state: string;
   clipName: string;
@@ -124,6 +133,10 @@ export class SceneRuntime {
 
   private readonly flashStates = new Map<string, EntityFlashState>();
 
+  private readonly feedbackLayer: HTMLDivElement;
+
+  private readonly floatingMarkers = new Set<FloatingMarker>();
+
   private debugOptions: SceneDebugOptions = {
     showZones: true,
     showCombatRanges: false,
@@ -154,6 +167,9 @@ export class SceneRuntime {
     this.renderer.setSize(mount.clientWidth, mount.clientHeight);
     this.renderer.shadowMap.enabled = true;
     mount.appendChild(this.renderer.domElement);
+    this.feedbackLayer = document.createElement("div");
+    this.feedbackLayer.className = "scene-feedback-layer";
+    mount.appendChild(this.feedbackLayer);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#dde7ef");
@@ -201,6 +217,7 @@ export class SceneRuntime {
     this.desiredAnimations.clear();
     this.assetReports.clear();
     this.flashStates.clear();
+    this.clearFloatingMarkers();
 
     for (const item of world.entities) {
       const entity = resolveEntity(world, item);
@@ -243,6 +260,7 @@ export class SceneRuntime {
       binding.mixer.update(dtSeconds);
     }
     this.tickFlashStates(dtSeconds);
+    this.tickFloatingMarkers(dtSeconds);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -380,6 +398,31 @@ export class SceneRuntime {
       durationSeconds,
       strength,
     });
+  }
+
+  spawnFloatingMarker(
+    entityId: string,
+    text: string,
+    tone: "damage" | "danger" | "loot" | "down" | "info" = "info",
+  ): void {
+    const object = this.entityMap.get(entityId);
+    if (!object) {
+      return;
+    }
+    const element = document.createElement("div");
+    element.className = `floating-marker ${tone}`;
+    element.textContent = text;
+    this.feedbackLayer.appendChild(element);
+    const marker: FloatingMarker = {
+      element,
+      entityId,
+      remainingSeconds: tone === "down" ? 1.05 : 0.78,
+      durationSeconds: tone === "down" ? 1.05 : 0.78,
+      worldOffsetY: tone === "loot" ? 1.45 : tone === "down" ? 2.15 : 1.85,
+      driftY: tone === "down" ? 0.9 : 0.55,
+    };
+    this.floatingMarkers.add(marker);
+    this.positionFloatingMarker(marker, 0);
   }
 
   getStats(): SceneStats {
@@ -747,6 +790,43 @@ export class SceneRuntime {
         this.flashStates.set(entityId, flash);
       }
     }
+  }
+
+  private tickFloatingMarkers(dtSeconds: number): void {
+    for (const marker of [...this.floatingMarkers]) {
+      marker.remainingSeconds -= dtSeconds;
+      if (marker.remainingSeconds <= 0) {
+        marker.element.remove();
+        this.floatingMarkers.delete(marker);
+        continue;
+      }
+      this.positionFloatingMarker(marker, 1 - (marker.remainingSeconds / marker.durationSeconds));
+    }
+  }
+
+  private positionFloatingMarker(marker: FloatingMarker, normalizedLifetime: number): void {
+    const object = this.entityMap.get(marker.entityId);
+    if (!object) {
+      marker.element.remove();
+      this.floatingMarkers.delete(marker);
+      return;
+    }
+
+    const worldPosition = object.getWorldPosition(new THREE.Vector3());
+    worldPosition.y += marker.worldOffsetY + (marker.driftY * normalizedLifetime);
+    const projected = worldPosition.project(this.camera);
+    const x = ((projected.x + 1) * 0.5) * this.mount.clientWidth;
+    const y = ((1 - projected.y) * 0.5) * this.mount.clientHeight;
+    const scale = 1 + (normalizedLifetime * 0.08);
+    marker.element.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%) scale(${scale.toFixed(3)})`;
+    marker.element.style.opacity = String(Math.max(0, 1 - normalizedLifetime));
+  }
+
+  private clearFloatingMarkers(): void {
+    for (const marker of this.floatingMarkers) {
+      marker.element.remove();
+    }
+    this.floatingMarkers.clear();
   }
 
   private applyVisualState(
