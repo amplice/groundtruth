@@ -10,6 +10,7 @@ import {
   sectorCoordForPoint,
   sectorKeyForPoint,
 } from "../core/schema";
+import { SectorPopulationManager } from "../runtime/sectorPopulationManager";
 import { ModuleContext, RuntimeModule } from "./types";
 
 interface AnimationLock {
@@ -53,11 +54,13 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   private sectorSummary = "No sector activity yet.";
 
+  private readonly sectorPopulation = new SectorPopulationManager();
+
   update(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
     this.tickAnimationLocks(dtSeconds, context);
 
-    const world = context.store.peekWorld();
+    let world = context.store.peekWorld();
     const player = world.entities.find((entity) => entity.id === "player");
     if (!player) {
       this.statusLines = ["No player entity in world."];
@@ -66,34 +69,57 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     }
 
     const resolvedPlayer = resolveEntity(world, player);
-    const character = resolvedPlayer.components.character;
+    if (this.sectorPopulation.reconcile(context.store, world, resolvedPlayer.transform.position)) {
+      const populationStats = this.sectorPopulation.getStats();
+      this.pushEvent(
+        `Sector population swap: +${populationStats.lastActivated} activated, -${populationStats.lastParked} parked.`,
+      );
+      this.statusLines = [
+        "WASD move | Shift sprint | Space attack | E loot",
+        `Sector swap in progress | Dormant zombies ${populationStats.dormantCount}`,
+      ];
+      this.debugFindings = [
+        `Sector population rebalance at ${populationStats.centerSector}.`,
+        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}.`,
+      ];
+      return;
+    }
+    world = context.store.peekWorld();
+    const livePlayer = world.entities.find((entity) => entity.id === "player");
+    if (!livePlayer) {
+      this.statusLines = ["No player entity in world."];
+      this.debugFindings = ["No player entity in world."];
+      return;
+    }
+    const liveResolvedPlayer = resolveEntity(world, livePlayer);
+    const character = liveResolvedPlayer.components.character;
     if (!character) {
       this.statusLines = ["Player entity has no character component."];
       this.debugFindings = ["Player entity has no character component."];
       return;
     }
 
-    if (this.isDead(resolvedPlayer)) {
-      const deathAction = this.resolveActionDefinition(resolvedPlayer, "death");
+    if (this.isDead(liveResolvedPlayer)) {
+      const deathAction = this.resolveActionDefinition(liveResolvedPlayer, "death");
       this.lockAnimationState("player", deathAction.state, Number.POSITIVE_INFINITY);
       this.syncAction(context, "player", deathAction);
-      this.updateZombies(dtSeconds, context, context.store.peekWorld(), player.id);
-      this.updateStatus(context, resolvedPlayer, "You are dead. Generate or reset the world to continue.");
-      this.updateDebugFindings(context, resolvedPlayer);
+      this.updateZombies(dtSeconds, context, context.store.peekWorld(), livePlayer.id);
+      this.updateStatus(context, liveResolvedPlayer, "You are dead. Generate or reset the world to continue.");
+      this.updateDebugFindings(context, liveResolvedPlayer);
       return;
     }
 
     this.updatePlayerMovement(
       dtSeconds,
       context,
-      player.id,
+      livePlayer.id,
       character.moveSpeed,
       character.sprintSpeed,
-      resolvedPlayer.components.cameraRig,
+      liveResolvedPlayer.components.cameraRig,
     );
-    this.tryPlayerAttack(context, player.id);
-    this.tryPlayerInteraction(context, player.id);
-    this.updateZombies(dtSeconds, context, context.store.peekWorld(), player.id);
+    this.tryPlayerAttack(context, livePlayer.id);
+    this.tryPlayerInteraction(context, livePlayer.id);
+    this.updateZombies(dtSeconds, context, context.store.peekWorld(), livePlayer.id);
     this.updateStatus(context, resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, "player")));
     this.updateDebugFindings(context, resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, "player")));
   }
@@ -565,7 +591,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
-      this.sectorSummary,
+      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount}`,
     ];
 
     if (overrideLine) {
@@ -608,7 +634,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.zombieActivityCounts.active} active, ${this.zombieActivityCounts.throttled} throttled, ${this.zombieActivityCounts.sleeping} sleeping`,
-      this.sectorSummary,
+      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount}`,
     ];
 
     if (stuckZombies.length > 0) {

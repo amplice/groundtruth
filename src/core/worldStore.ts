@@ -21,6 +21,8 @@ export class WorldStore {
 
   private commandIssues: string[] = [];
 
+  private worldRevision = 0;
+
   constructor(initialWorld: WorldDocument) {
     this.world = cloneWorld(initialWorld);
   }
@@ -38,9 +40,14 @@ export class WorldStore {
     return this.world;
   }
 
+  getWorldRevision(): number {
+    return this.worldRevision;
+  }
+
   setWorld(world: WorldDocument): void {
     this.world = cloneWorld(world);
     this.commandIssues = [];
+    this.worldRevision += 1;
     this.emit("world");
   }
 
@@ -48,6 +55,7 @@ export class WorldStore {
     const result = applyCommands(this.world, commands);
     this.world = result.world;
     this.commandIssues = result.issues;
+    this.worldRevision += 1;
     this.emit("world");
   }
 
@@ -99,6 +107,7 @@ export class WorldStore {
         : entity.transform.scale,
     };
     if (emit) {
+      this.worldRevision += 1;
       this.emit("world");
     }
   }
@@ -117,6 +126,7 @@ export class WorldStore {
       ...components,
     };
     if (emit) {
+      this.worldRevision += 1;
       this.emit("world");
     }
   }
