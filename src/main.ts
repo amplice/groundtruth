@@ -89,6 +89,10 @@ async function bootstrap(): Promise<void> {
               <input id="toggle-aggro" type="checkbox" />
               <span>Aggro radii</span>
             </label>
+            <label class="toggle">
+              <input id="toggle-sectors" type="checkbox" />
+              <span>Sector overlay</span>
+            </label>
           </div>
         </section>
         <section class="section">
@@ -326,6 +330,7 @@ async function bootstrap(): Promise<void> {
   const toggleCombatInput = root.querySelector<HTMLInputElement>("#toggle-combat");
   const toggleInteractionInput = root.querySelector<HTMLInputElement>("#toggle-interaction");
   const toggleAggroInput = root.querySelector<HTMLInputElement>("#toggle-aggro");
+  const toggleSectorsInput = root.querySelector<HTMLInputElement>("#toggle-sectors");
 
   if (
     !canvasRoot ||
@@ -367,7 +372,8 @@ async function bootstrap(): Promise<void> {
     !toggleZonesInput ||
     !toggleCombatInput ||
     !toggleInteractionInput ||
-    !toggleAggroInput
+    !toggleAggroInput ||
+    !toggleSectorsInput
   ) {
     throw new Error("UI bootstrap failed.");
   }
@@ -871,6 +877,7 @@ async function bootstrap(): Promise<void> {
     showCombatRanges: toggleCombatInput.checked,
     showInteractionRanges: toggleInteractionInput.checked,
     showAggroRanges: toggleAggroInput.checked,
+    showSectors: toggleSectorsInput.checked,
   });
 
   const refreshSidebar = (): void => {
@@ -879,6 +886,7 @@ async function bootstrap(): Promise<void> {
     const evaluation = evaluateWorld(world);
     const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
     const worldDebugLines = runtimeModule.getWorldDebug?.(world) ?? [];
+    const sectorOverlay = runtimeModule.getSectorOverlay?.() ?? null;
     const moduleEvents = runtimeModule.getRecentEvents?.() ?? [];
     const selectedEntityId = store.getSelectedEntityId();
     const selectedZone = getSelectedZone(world);
@@ -907,6 +915,7 @@ async function bootstrap(): Promise<void> {
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
+    scene.setSectorOverlay(sectorOverlay);
     sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
@@ -1226,6 +1235,7 @@ async function bootstrap(): Promise<void> {
       showCombatRanges: toggleCombatInput.checked,
       showInteractionRanges: toggleInteractionInput.checked,
       showAggroRanges: toggleAggroInput.checked,
+      showSectors: toggleSectorsInput.checked,
     });
   };
 
@@ -1233,6 +1243,7 @@ async function bootstrap(): Promise<void> {
   toggleCombatInput.addEventListener("change", syncDebugOptions);
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
+  toggleSectorsInput.addEventListener("change", syncDebugOptions);
   sceneSearchInput.addEventListener("input", refreshSidebar);
   sceneFilterInput.addEventListener("change", refreshSidebar);
   syncSidebarState();

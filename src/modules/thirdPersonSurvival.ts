@@ -11,7 +11,7 @@ import {
   sectorKeyForPoint,
 } from "../core/schema";
 import { SectorPopulationManager } from "../runtime/sectorPopulationManager";
-import { ModuleContext, RuntimeModule } from "./types";
+import { ModuleContext, RuntimeModule, RuntimeSectorOverlay } from "./types";
 
 interface AnimationLock {
   state: string;
@@ -134,6 +134,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
   getWorldDebug(_world: ReturnType<ModuleContext["store"]["peekWorld"]>): string[] {
     return this.sectorPopulation.getDebugLines();
+  }
+
+  getSectorOverlay(): RuntimeSectorOverlay | null {
+    return this.sectorPopulation.getOverlayData();
   }
 
   getEntityDebug(

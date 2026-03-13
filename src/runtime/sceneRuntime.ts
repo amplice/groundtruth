@@ -17,6 +17,7 @@ import {
   ZoneSpec,
   resolveEntity,
 } from "../core/schema";
+import { RuntimeSectorOverlay } from "../modules/types";
 
 interface LoadedModelAsset {
   scene: THREE.Object3D;
@@ -67,6 +68,7 @@ export interface SceneDebugOptions {
   showCombatRanges: boolean;
   showInteractionRanges: boolean;
   showAggroRanges: boolean;
+  showSectors: boolean;
 }
 
 export interface GroundPickResult {
@@ -90,6 +92,8 @@ export class SceneRuntime {
   private readonly entityGroup = new THREE.Group();
 
   private readonly zoneGroup = new THREE.Group();
+
+  private readonly sectorGroup = new THREE.Group();
 
   private readonly raycaster = new THREE.Raycaster();
 
@@ -116,6 +120,7 @@ export class SceneRuntime {
     showCombatRanges: false,
     showInteractionRanges: true,
     showAggroRanges: false,
+    showSectors: false,
   };
 
   private currentWorld: WorldDocument | null = null;
@@ -123,6 +128,8 @@ export class SceneRuntime {
   private selectedEntityId: string | null = null;
 
   private selectedZoneId: string | null = null;
+
+  private currentSectorOverlay: RuntimeSectorOverlay | null = null;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -155,6 +162,7 @@ export class SceneRuntime {
 
     this.scene.add(this.entityGroup);
     this.scene.add(this.zoneGroup);
+    this.scene.add(this.sectorGroup);
     this.scene.add(new THREE.GridHelper(220, 44, 0x657d8b, 0x94a7b2));
 
     const hemi = new THREE.HemisphereLight(0xe6eef7, 0x4e5f49, 1.2);
@@ -177,6 +185,7 @@ export class SceneRuntime {
     this.clearAnimationBindings();
     this.clearGroup(this.entityGroup);
     this.clearGroup(this.zoneGroup);
+    this.clearGroup(this.sectorGroup);
     this.entityMap.clear();
     this.desiredAnimations.clear();
     this.assetReports.clear();
@@ -194,6 +203,7 @@ export class SceneRuntime {
     }
 
     this.setSelection(this.selectedEntityId, this.selectedZoneId);
+    this.rebuildSectorOverlay();
   }
 
   setDebugOptions(options: Partial<SceneDebugOptions>): void {
@@ -204,6 +214,11 @@ export class SceneRuntime {
     if (this.currentWorld) {
       this.setWorld(this.currentWorld);
     }
+  }
+
+  setSectorOverlay(overlay: RuntimeSectorOverlay | null): void {
+    this.currentSectorOverlay = overlay;
+    this.rebuildSectorOverlay();
   }
 
   renderFrame(dtSeconds = 0): void {
@@ -626,6 +641,70 @@ export class SceneRuntime {
     group.clear();
   }
 
+  private rebuildSectorOverlay(): void {
+    this.clearGroup(this.sectorGroup);
+    if (!this.debugOptions.showSectors || !this.currentSectorOverlay) {
+      return;
+    }
+
+    const residentSet = new Set(this.currentSectorOverlay.residentSectorKeys);
+    const hotSet = new Map(this.currentSectorOverlay.hotSectors.map((sector) => [sector.sectorKey, sector]));
+    const allSectorKeys = new Set<string>([
+      this.currentSectorOverlay.centerSector,
+      ...this.currentSectorOverlay.residentSectorKeys,
+      ...this.currentSectorOverlay.hotSectors.map((sector) => sector.sectorKey),
+    ]);
+
+    for (const sectorKey of allSectorKeys) {
+      const sectorCoord = parseSectorKey(sectorKey);
+      const center = {
+        x: (sectorCoord.x + 0.5) * this.currentSectorOverlay.sectorSize,
+        z: (sectorCoord.z + 0.5) * this.currentSectorOverlay.sectorSize,
+      };
+      const isCenter = sectorKey === this.currentSectorOverlay.centerSector;
+      const isResident = residentSet.has(sectorKey);
+      const hot = hotSet.get(sectorKey);
+      const color = isCenter
+        ? 0x55d0ff
+        : hot
+          ? 0xff9959
+          : isResident
+            ? 0x3b82f6
+            : 0x7e8a94;
+      const opacity = isCenter ? 0.95 : hot ? 0.72 : isResident ? 0.45 : 0.26;
+      this.sectorGroup.add(
+        this.buildSectorOutline(
+          center.x,
+          center.z,
+          this.currentSectorOverlay.sectorSize,
+          color,
+          opacity,
+        ),
+      );
+    }
+  }
+
+  private buildSectorOutline(
+    x: number,
+    z: number,
+    sectorSize: number,
+    color: number,
+    opacity: number,
+  ): THREE.Object3D {
+    const object = new THREE.LineSegments(
+      new THREE.EdgesGeometry(
+        new THREE.BoxGeometry(sectorSize, 0.04, sectorSize),
+      ),
+      new THREE.LineBasicMaterial({
+        color,
+        transparent: true,
+        opacity,
+      }),
+    );
+    object.position.set(x, 0.04, z);
+    return object;
+  }
+
   private loadModel(renderOrUri: ModelRenderComponent | string): Promise<LoadedModelAsset> {
     const render =
       typeof renderOrUri === "string"
@@ -964,4 +1043,12 @@ export class SceneRuntime {
 
 function inferModelFormat(uri: string): "gltf" | "fbx" {
   return uri.toLowerCase().endsWith(".fbx") ? "fbx" : "gltf";
+}
+
+function parseSectorKey(key: string): { x: number; z: number } {
+  const [rawX, rawZ] = key.split(":");
+  return {
+    x: Number.parseInt(rawX ?? "0", 10) || 0,
+    z: Number.parseInt(rawZ ?? "0", 10) || 0,
+  };
 }

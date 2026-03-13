@@ -8,6 +8,7 @@ import {
   sectorKeyForPoint,
 } from "../core/schema";
 import { WorldStore } from "../core/worldStore";
+import { RuntimeSectorOverlay } from "../modules/types";
 
 export interface SectorPopulationStats {
   centerSector: string;
@@ -43,6 +44,8 @@ export class SectorPopulationManager {
 
   private residentSignature = "";
 
+  private residentSectorKeys: string[] = [];
+
   private spawnCounter = 1;
 
   private currentSectorSize = 1;
@@ -74,6 +77,7 @@ export class SectorPopulationManager {
       }
     }
     const signature = [...residentKeys].sort().join("|");
+    this.residentSectorKeys = [...residentKeys].sort();
     this.stats.centerSector = `${centerCoord.x}:${centerCoord.z}`;
     this.stats.residentSectorCount = residentKeys.size;
 
@@ -185,6 +189,27 @@ export class SectorPopulationManager {
     return lines;
   }
 
+  getOverlayData(limit = 10): RuntimeSectorOverlay | null {
+    if (this.stats.centerSector === "n/a") {
+      return null;
+    }
+    const hotSectors = this.buildSectorRecords()
+      .sort((left, right) => (right.pooled + right.dormant) - (left.pooled + left.dormant))
+      .slice(0, limit)
+      .filter((record) => record.pooled > 0 || record.dormant > 0)
+      .map((record) => ({
+        sectorKey: record.sectorKey,
+        pooled: record.pooled,
+        dormant: record.dormant,
+      }));
+    return {
+      sectorSize: this.currentSectorSize,
+      centerSector: this.stats.centerSector,
+      residentSectorKeys: [...this.residentSectorKeys],
+      hotSectors,
+    };
+  }
+
   private syncRevision(currentRevision: number): void {
     if (this.trackedRevision === null) {
       this.trackedRevision = currentRevision;
@@ -204,6 +229,7 @@ export class SectorPopulationManager {
   private reset(): void {
     this.dormantEntities.clear();
     this.residentSignature = "";
+    this.residentSectorKeys = [];
     this.stats = {
       centerSector: "n/a",
       residentSectorCount: 0,
