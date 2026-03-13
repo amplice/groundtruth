@@ -1,4 +1,5 @@
 import { CameraRigComponent, GameMode } from "../core/schema";
+import { RuntimeFeatureId } from "./types";
 
 export type ActionPlayerMovementMode = "third_person" | "top_down" | "platformer";
 
@@ -14,6 +15,7 @@ export interface ActionModulePreset {
   playerMovementMode: ActionPlayerMovementMode;
   hostileBehavior: ActionHostileBehavior;
   worldLayout: "third_person" | "top_down" | "platformer";
+  featureIds?: RuntimeFeatureId[];
   sprintMultiplier?: number;
 }
 
@@ -31,6 +33,7 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
+  featureIds: [],
   sprintMultiplier: 1.5,
 };
 
@@ -48,6 +51,7 @@ export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
+  featureIds: ["sector_population"],
   sprintMultiplier: 1.5,
 };
 
@@ -65,6 +69,7 @@ export const TOP_DOWN_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "top_down",
   hostileBehavior: "arena_3d",
   worldLayout: "top_down",
+  featureIds: [],
   sprintMultiplier: 1.4,
 };
 
@@ -83,6 +88,7 @@ export const PLATFORMER_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "platformer",
   hostileBehavior: "lane_2d",
   worldLayout: "platformer",
+  featureIds: [],
   sprintMultiplier: 1.3,
 };
 

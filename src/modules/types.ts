@@ -27,6 +27,30 @@ export interface RuntimeSectorOverlay {
   }>;
 }
 
+export type RuntimeFeatureId = "sector_population";
+
+export interface RuntimeFeatureHost {
+  getControlLine(): string;
+}
+
+export interface RuntimeFeatureFrameResult {
+  shortCircuit?: boolean;
+  statusLines?: string[];
+  debugFindings?: string[];
+  events?: string[];
+}
+
+export interface RuntimeFeature {
+  readonly id: RuntimeFeatureId;
+  beginFrame?(
+    dtSeconds: number,
+    context: ModuleContext,
+    host: RuntimeFeatureHost,
+  ): RuntimeFeatureFrameResult | void;
+  getWorldDebug?(world: WorldDocument): string[];
+  getSectorOverlay?(): RuntimeSectorOverlay | null;
+}
+
 export interface RuntimeModule {
   readonly id: string;
   update(dtSeconds: number, context: ModuleContext): void;

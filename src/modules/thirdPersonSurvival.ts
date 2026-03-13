@@ -4,66 +4,21 @@ import {
   sectorCoordForPoint,
   sectorKeyForPoint,
 } from "../core/schema";
-import { SectorPopulationManager } from "../runtime/sectorPopulationManager";
 import { THIRD_PERSON_SURVIVAL_PRESET } from "./actionModulePresets";
+import { SectorPopulationFeature } from "./sectorPopulationFeature";
 import { PresetActionModule } from "./thirdPersonAction";
-import { ModuleContext, RuntimeSectorOverlay } from "./types";
+import { ModuleContext } from "./types";
 
 type ZombieActivityTier = "active" | "throttled" | "sleeping";
 
 export class ThirdPersonSurvivalModule extends PresetActionModule {
   private sectorSummary = "No sector activity yet.";
 
-  private readonly sectorPopulation = new SectorPopulationManager();
+  private readonly sectorPopulation: SectorPopulationFeature;
 
   constructor() {
     super(THIRD_PERSON_SURVIVAL_PRESET);
-  }
-
-  override update(dtSeconds: number, context: ModuleContext): void {
-    this.beginFrame(dtSeconds, context);
-
-    const world = context.store.peekWorld();
-    const player = world.entities.find((entity) => entity.id === "player");
-    if (!player) {
-      this.statusLines = ["No player entity in world."];
-      this.debugFindings = ["No player entity in world."];
-      return;
-    }
-
-    const resolvedPlayer = resolveEntity(world, player);
-    if (
-      this.sectorPopulation.reconcile(
-        context.store,
-        world,
-        resolvedPlayer.transform.position,
-        dtSeconds,
-      )
-    ) {
-      const populationStats = this.sectorPopulation.getStats();
-      this.pushEvent(
-        `Sector population swap: +${populationStats.lastActivated} activated, -${populationStats.lastParked} parked.`,
-      );
-      this.statusLines = [
-        this.getControlLine(),
-        `Sector swap in progress | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
-      ];
-      this.debugFindings = [
-        `Sector population rebalance at ${populationStats.centerSector}.`,
-        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}, pooled ${populationStats.pooledCount}, tracked ${populationStats.trackedSectorCount}.`,
-      ];
-      return;
-    }
-
-    this.runFrame(dtSeconds, context);
-  }
-
-  getWorldDebug(): string[] {
-    return this.sectorPopulation.getDebugLines();
-  }
-
-  getSectorOverlay(): RuntimeSectorOverlay | null {
-    return this.sectorPopulation.getOverlayData();
+    this.sectorPopulation = this.requireFeature<SectorPopulationFeature>("sector_population");
   }
 
   protected override updateHostiles(

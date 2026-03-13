@@ -14,7 +14,15 @@ import {
   PLATFORMER_ACTION_PRESET,
   THIRD_PERSON_ACTION_PRESET,
 } from "./actionModulePresets";
-import { ModuleContext, RuntimeModule } from "./types";
+import { createRuntimeFeatures } from "./runtimeFeatureRegistry";
+import {
+  ModuleContext,
+  RuntimeFeature,
+  RuntimeFeatureId,
+  RuntimeFeatureHost,
+  RuntimeModule,
+  RuntimeSectorOverlay,
+} from "./types";
 
 interface AnimationLock {
   state: string;
@@ -28,7 +36,7 @@ interface MotionSample {
 
 type HostileActivityTier = "active" | "throttled" | "sleeping";
 
-export class PresetActionModule implements RuntimeModule {
+export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   readonly id: RuntimeModule["id"];
 
   protected readonly cooldowns = new Map<string, number>();
@@ -59,18 +67,46 @@ export class PresetActionModule implements RuntimeModule {
 
   protected readonly groundedState = new Map<string, boolean>();
 
+  protected readonly features: RuntimeFeature[];
+
   constructor(protected readonly preset: ActionModulePreset) {
     this.id = preset.id;
+    this.features = createRuntimeFeatures(preset.featureIds ?? []);
   }
 
   update(dtSeconds: number, context: ModuleContext): void {
-    this.beginFrame(dtSeconds, context);
+    try {
+      this.beginFrame(dtSeconds, context);
+    } catch (error) {
+      if (error instanceof FeatureShortCircuitError) {
+        return;
+      }
+      throw error;
+    }
     this.runFrame(dtSeconds, context);
   }
 
   protected beginFrame(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
     this.tickAnimationLocks(dtSeconds, context);
+    for (const feature of this.features) {
+      const result = feature.beginFrame?.(dtSeconds, context, this);
+      if (!result) {
+        continue;
+      }
+      for (const event of result.events ?? []) {
+        this.pushEvent(event);
+      }
+      if (result.statusLines) {
+        this.statusLines = [...result.statusLines];
+      }
+      if (result.debugFindings) {
+        this.debugFindings = [...result.debugFindings];
+      }
+      if (result.shortCircuit) {
+        throw new FeatureShortCircuitError();
+      }
+    }
   }
 
   protected runFrame(dtSeconds: number, context: ModuleContext): void {
@@ -154,6 +190,28 @@ export class PresetActionModule implements RuntimeModule {
 
   getRecentEvents(): string[] {
     return [...this.recentEvents];
+  }
+
+  getWorldDebug(world: ReturnType<ModuleContext["store"]["peekWorld"]>): string[] {
+    return this.features.flatMap((feature) => feature.getWorldDebug?.(world) ?? []);
+  }
+
+  getSectorOverlay(): RuntimeSectorOverlay | null {
+    for (const feature of this.features) {
+      const overlay = feature.getSectorOverlay?.();
+      if (overlay) {
+        return overlay;
+      }
+    }
+    return null;
+  }
+
+  protected requireFeature<T extends RuntimeFeature>(featureId: RuntimeFeatureId): T {
+    const feature = this.features.find((item) => item.id === featureId);
+    if (!feature) {
+      throw new Error(`Expected runtime feature '${featureId}' to be installed.`);
+    }
+    return feature as T;
   }
 
   protected updatePlayerMovement(
@@ -1137,15 +1195,15 @@ export class PresetActionModule implements RuntimeModule {
     return entityRig ?? this.preset.cameraRig;
   }
 
-  protected getControlLine(): string {
+  getControlLine(): string {
     return this.preset.controlLine;
   }
 
-  protected getIdlePrompt(): string {
+  getIdlePrompt(): string {
     return this.preset.idlePrompt;
   }
 
-  protected getAttackKey(): string {
+  getAttackKey(): string {
     return this.preset.attackKey;
   }
 }
@@ -1167,4 +1225,10 @@ function formatSeconds(seconds: number): string {
     return "locked";
   }
   return `${seconds.toFixed(2)}s`;
+}
+
+class FeatureShortCircuitError extends Error {
+  constructor() {
+    super("feature-short-circuit");
+  }
 }
