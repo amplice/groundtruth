@@ -34,6 +34,13 @@ interface AnimationBinding {
   loopMode: string;
 }
 
+interface EntityFlashState {
+  color: THREE.Color;
+  remainingSeconds: number;
+  durationSeconds: number;
+  strength: number;
+}
+
 export interface AssetClipReport {
   state: string;
   clipName: string;
@@ -115,6 +122,8 @@ export class SceneRuntime {
 
   private readonly assetReports = new Map<string, AssetReport>();
 
+  private readonly flashStates = new Map<string, EntityFlashState>();
+
   private debugOptions: SceneDebugOptions = {
     showZones: true,
     showCombatRanges: false,
@@ -191,6 +200,7 @@ export class SceneRuntime {
     this.entityMap.clear();
     this.desiredAnimations.clear();
     this.assetReports.clear();
+    this.flashStates.clear();
 
     for (const item of world.entities) {
       const entity = resolveEntity(world, item);
@@ -232,6 +242,7 @@ export class SceneRuntime {
     for (const binding of this.animationBindings.values()) {
       binding.mixer.update(dtSeconds);
     }
+    this.tickFlashStates(dtSeconds);
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -328,11 +339,14 @@ export class SceneRuntime {
     const desiredAnimation = this.desiredAnimations.get(entityId);
     const binding = this.animationBindings.get(entityId);
     const report = this.assetReports.get(entityId);
+    const object = this.entityMap.get(entityId);
+    const legibility = object?.userData.legibilityState as ReturnType<typeof inferEntityLegibilityState> | undefined;
 
     lines.push(`Desired state: ${desiredAnimation?.state ?? "none"}`);
     lines.push(`Active clip: ${binding?.activeClipName ?? "none"}`);
     lines.push(`Loop mode: ${binding?.loopMode ?? "n/a"}`);
     lines.push(`Playback speed: ${binding ? binding.effectiveSpeed.toFixed(2) : "n/a"}`);
+    lines.push(`Legibility marker: ${legibility?.state ?? "none"}`);
     if (binding?.activeState) {
       const duration = this.getAnimationDuration(entityId, binding.activeState);
       lines.push(`Active clip duration: ${duration ? `${duration.toFixed(2)}s` : "n/a"}`);
@@ -349,6 +363,23 @@ export class SceneRuntime {
     }
 
     return lines;
+  }
+
+  flashEntity(
+    entityId: string,
+    color = "#ff4d4d",
+    durationSeconds = 0.18,
+    strength = 0.95,
+  ): void {
+    if (!this.entityMap.has(entityId)) {
+      return;
+    }
+    this.flashStates.set(entityId, {
+      color: new THREE.Color(color),
+      remainingSeconds: durationSeconds,
+      durationSeconds,
+      strength,
+    });
   }
 
   getStats(): SceneStats {
@@ -400,12 +431,17 @@ export class SceneRuntime {
     const group = new THREE.Group();
     group.name = entity.id;
     group.userData.entityId = entity.id;
+    group.userData.legibilityState = inferEntityLegibilityState(entity);
 
     const object = entity.components.render
       ? this.buildRenderable(entity)
       : this.buildFallbackPlaceholder(entity);
     object.userData.entityId = entity.id;
     group.add(object);
+    const marker = this.buildEntityMarker(entity);
+    if (marker) {
+      group.add(marker);
+    }
     const debugHelpers = this.buildEntityDebugHelpers(entity);
     if (debugHelpers) {
       group.add(debugHelpers);
@@ -573,6 +609,46 @@ export class SceneRuntime {
     return mesh;
   }
 
+  private buildEntityMarker(entity: ResolvedEntity): THREE.Object3D | null {
+    const legibility = inferEntityLegibilityState(entity);
+    if (!legibility) {
+      return null;
+    }
+
+    const group = new THREE.Group();
+    const radius = inferEntityMarkerRadius(entity);
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(radius, Math.max(0.03, radius * 0.08), 10, 28),
+      new THREE.MeshBasicMaterial({
+        color: legibility.color,
+        transparent: true,
+        opacity: legibility.opacity,
+      }),
+    );
+    ring.rotation.x = Math.PI * 0.5;
+    ring.position.y = 0.05;
+    ring.userData.marker = true;
+    ring.userData.baseMarkerOpacity = legibility.opacity;
+    group.add(ring);
+
+    if (legibility.beaconHeight > 0) {
+      const beacon = new THREE.Mesh(
+        new THREE.SphereGeometry(Math.max(0.06, radius * 0.1), 12, 8),
+        new THREE.MeshBasicMaterial({
+          color: legibility.color,
+          transparent: true,
+          opacity: legibility.opacity * 0.9,
+        }),
+      );
+      beacon.position.set(0, legibility.beaconHeight, 0);
+      beacon.userData.marker = true;
+      beacon.userData.baseMarkerOpacity = legibility.opacity * 0.9;
+      group.add(beacon);
+    }
+
+    return group;
+  }
+
   private buildZoneObject(zone: ZoneSpec): THREE.Object3D {
     if (!this.debugOptions.showZones) {
       return new THREE.Group();
@@ -646,6 +722,78 @@ export class SceneRuntime {
       });
     }
     group.clear();
+  }
+
+  private tickFlashStates(dtSeconds: number): void {
+    for (const [entityId, flash] of [...this.flashStates.entries()]) {
+      const object = this.entityMap.get(entityId);
+      if (!object) {
+        this.flashStates.delete(entityId);
+        continue;
+      }
+
+      const normalized =
+        flash.durationSeconds <= 0
+          ? 0
+          : Math.max(0, flash.remainingSeconds) / flash.durationSeconds;
+      const pulse = Math.sin(normalized * Math.PI);
+      this.applyVisualState(object, entityId, pulse * flash.strength, flash.color);
+
+      flash.remainingSeconds -= dtSeconds;
+      if (flash.remainingSeconds <= 0) {
+        this.flashStates.delete(entityId);
+        this.applyVisualState(object, entityId, 0, flash.color);
+      } else {
+        this.flashStates.set(entityId, flash);
+      }
+    }
+  }
+
+  private applyVisualState(
+    object: THREE.Object3D,
+    entityId: string,
+    flashStrength = 0,
+    flashColor?: THREE.Color,
+  ): void {
+    const selected = entityId === this.selectedEntityId;
+    const legibilityState = object.userData.legibilityState as ReturnType<typeof inferEntityLegibilityState> | undefined;
+    const dead = legibilityState?.state === "dead";
+    const resolvedFlashColor = flashColor ?? new THREE.Color("#ff4d4d");
+
+    object.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (mesh.userData.marker && mesh.material instanceof THREE.MeshBasicMaterial) {
+        const baseOpacity = mesh.userData.baseMarkerOpacity as number | undefined;
+        if (baseOpacity !== undefined) {
+          mesh.material.opacity = baseOpacity * (dead ? 0.38 : 1);
+        }
+        return;
+      }
+      if (!mesh.material || Array.isArray(mesh.material)) {
+        return;
+      }
+      if (!(mesh.material instanceof THREE.MeshStandardMaterial)) {
+        return;
+      }
+
+      if (!mesh.userData.baseColor) {
+        mesh.userData.baseColor = mesh.material.color.clone();
+      }
+      const baseColor = mesh.userData.baseColor as THREE.Color;
+      const targetColor = flashStrength > 0
+        ? baseColor.clone().lerp(resolvedFlashColor, Math.min(1, flashStrength))
+        : baseColor.clone();
+      if (dead) {
+        targetColor.lerp(new THREE.Color("#30343a"), 0.45);
+      }
+      mesh.material.color.copy(targetColor);
+      mesh.material.emissive.set(selected ? "#2d3640" : "#000000");
+      if (flashStrength > 0) {
+        mesh.material.emissive.lerp(resolvedFlashColor, Math.min(1, flashStrength * 0.7));
+      }
+      mesh.material.transparent = dead;
+      mesh.material.opacity = dead ? 0.78 : 1;
+    });
   }
 
   private rebuildSectorOverlay(): void {
@@ -795,6 +943,11 @@ export class SceneRuntime {
     instance.traverse((node) => {
       const mesh = node as THREE.Mesh;
       if (mesh.isMesh) {
+        if (Array.isArray(mesh.material)) {
+          mesh.material = mesh.material.map((material) => material.clone());
+        } else if (mesh.material) {
+          mesh.material = mesh.material.clone();
+        }
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.userData.sharedModelResource = true;
@@ -931,15 +1084,13 @@ export class SceneRuntime {
     this.selectedEntityId = entityId;
     this.selectedZoneId = zoneId;
     for (const [id, object] of this.entityMap) {
-      object.traverse((node) => {
-        const mesh = node as THREE.Mesh;
-        if (!mesh.material || Array.isArray(mesh.material)) {
-          return;
-        }
-        if (mesh.material instanceof THREE.MeshStandardMaterial) {
-          mesh.material.emissive.set(id === entityId ? "#2d3640" : "#000000");
-        }
-      });
+      const flash = this.flashStates.get(id);
+      this.applyVisualState(
+        object,
+        id,
+        flash ? Math.max(0, flash.remainingSeconds / flash.durationSeconds) * flash.strength : 0,
+        flash?.color,
+      );
     }
     for (const object of this.zoneGroup.children) {
       object.traverse((node) => {
@@ -1072,6 +1223,63 @@ export class SceneRuntime {
 
 function inferModelFormat(uri: string): "gltf" | "fbx" {
   return uri.toLowerCase().endsWith(".fbx") ? "fbx" : "gltf";
+}
+
+function inferEntityLegibilityState(entity: ResolvedEntity): {
+  state: "player" | "enemy" | "interactive" | "dead";
+  color: string;
+  opacity: number;
+  beaconHeight: number;
+} | null {
+  const isDead = (entity.components.health?.current ?? 1) <= 0;
+  if (isDead) {
+    return {
+      state: "dead",
+      color: "#7e8a94",
+      opacity: 0.22,
+      beaconHeight: 0,
+    };
+  }
+  if (entity.id === "player" || entity.components.brain?.archetype === "player") {
+    return {
+      state: "player",
+      color: "#3d8cff",
+      opacity: 0.85,
+      beaconHeight: 2.05,
+    };
+  }
+  if (entity.components.brain?.archetype === "zombie" || entity.tags.includes("enemy")) {
+    return {
+      state: "enemy",
+      color: "#ff6b5c",
+      opacity: 0.62,
+      beaconHeight: 1.8,
+    };
+  }
+  if (entity.components.interaction) {
+    return {
+      state: "interactive",
+      color: "#f4d35e",
+      opacity: 0.5,
+      beaconHeight: 1.1,
+    };
+  }
+  return null;
+}
+
+function inferEntityMarkerRadius(entity: ResolvedEntity): number {
+  const shape = entity.components.physics?.shape;
+  if (!shape) {
+    return entity.id === "player" ? 0.58 : 0.5;
+  }
+  switch (shape.type) {
+    case "capsule":
+      return shape.radius + 0.1;
+    case "sphere":
+      return shape.radius + 0.12;
+    case "box":
+      return (Math.max(shape.size.x, shape.size.z) * 0.5) + 0.08;
+  }
 }
 
 function parseSectorKey(key: string): { x: number; z: number } {

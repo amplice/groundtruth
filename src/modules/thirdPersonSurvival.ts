@@ -333,6 +333,8 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
 
     context.store.updateEntityComponents(playerId, { inventory: nextPlayerInventory });
     context.store.updateEntityComponents(interactive.id, { inventory: nextContainerInventory });
+    context.scene.flashEntity(interactive.id, "#f4d35e", 0.22, 0.8);
+    context.scene.flashEntity(playerId, "#7cc6fe", 0.16, 0.45);
     this.pushEvent(`Player looted ${itemId} from ${interactive.name}.`);
     this.statusLines = [
       "WASD move | Shift sprint | Space attack | E loot",
@@ -516,6 +518,12 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       const deathAction = this.resolveActionDefinition(resolvedTarget, "death");
       this.lockAnimationState(targetId, deathAction.state, Number.POSITIVE_INFINITY);
       this.syncAction(context, targetId, deathAction);
+      context.scene.flashEntity(
+        targetId,
+        resolvedTarget.id === "player" ? "#ff9c9c" : "#ffffff",
+        0.32,
+        1,
+      );
       this.pushEvent(`${resolvedTarget.name} died.`);
       return;
     }
@@ -527,6 +535,12 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       Math.min(this.resolveActionDuration(context, targetId, hurtAction), 0.45),
     );
     this.syncAction(context, targetId, hurtAction);
+    context.scene.flashEntity(
+      targetId,
+      resolvedTarget.id === "player" ? "#ff8f8f" : "#ff4d4d",
+      resolvedTarget.id === "player" ? 0.24 : 0.18,
+      resolvedTarget.id === "player" ? 0.9 : 1,
+    );
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
