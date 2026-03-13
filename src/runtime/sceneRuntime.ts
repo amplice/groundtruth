@@ -50,6 +50,14 @@ interface FloatingMarker {
   driftY: number;
 }
 
+interface HealthBarState {
+  element: HTMLDivElement;
+  fill: HTMLDivElement;
+  label: HTMLSpanElement;
+  current: number;
+  max: number;
+}
+
 export interface AssetClipReport {
   state: string;
   clipName: string;
@@ -137,6 +145,14 @@ export class SceneRuntime {
 
   private readonly floatingMarkers = new Set<FloatingMarker>();
 
+  private readonly healthBarLayer: HTMLDivElement;
+
+  private readonly healthBars = new Map<string, HealthBarState>();
+
+  private readonly dangerOverlay: HTMLDivElement;
+
+  private playerDangerLevel = 0;
+
   private debugOptions: SceneDebugOptions = {
     showZones: true,
     showCombatRanges: false,
@@ -170,6 +186,12 @@ export class SceneRuntime {
     this.feedbackLayer = document.createElement("div");
     this.feedbackLayer.className = "scene-feedback-layer";
     mount.appendChild(this.feedbackLayer);
+    this.healthBarLayer = document.createElement("div");
+    this.healthBarLayer.className = "scene-health-layer";
+    mount.appendChild(this.healthBarLayer);
+    this.dangerOverlay = document.createElement("div");
+    this.dangerOverlay.className = "scene-danger-overlay";
+    mount.appendChild(this.dangerOverlay);
 
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color("#dde7ef");
@@ -218,6 +240,9 @@ export class SceneRuntime {
     this.assetReports.clear();
     this.flashStates.clear();
     this.clearFloatingMarkers();
+    this.clearHealthBars();
+    this.playerDangerLevel = 0;
+    this.dangerOverlay.style.opacity = "0";
 
     for (const item of world.entities) {
       const entity = resolveEntity(world, item);
@@ -225,6 +250,10 @@ export class SceneRuntime {
       const object = this.buildEntityObject(entity);
       this.entityGroup.add(object);
       this.entityMap.set(entity.id, object);
+      const health = entity.components.health;
+      if (health && shouldCreateHealthBar(entity)) {
+        this.createHealthBar(entity.id, health.current, health.max);
+      }
     }
 
     for (const zone of world.zones) {
@@ -261,6 +290,8 @@ export class SceneRuntime {
     }
     this.tickFlashStates(dtSeconds);
     this.tickFloatingMarkers(dtSeconds);
+    this.tickHealthBars();
+    this.tickDangerOverlay();
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }
@@ -406,6 +437,39 @@ export class SceneRuntime {
     });
   }
 
+  updateEntityHealth(entityId: string, current: number, max: number): void {
+    const bar = this.healthBars.get(entityId);
+    if (!bar) {
+      if (this.entityMap.has(entityId)) {
+        this.createHealthBar(entityId, current, max);
+      }
+    } else {
+      bar.current = current;
+      bar.max = Math.max(1, max);
+    }
+
+    const object = this.entityMap.get(entityId);
+    if (object) {
+      const baseState = object.userData.baseLegibilityState as ReturnType<typeof inferEntityLegibilityState> | undefined;
+      if (baseState) {
+        object.userData.legibilityState = current <= 0
+          ? buildDeadLegibilityState()
+          : { ...baseState };
+      }
+      const flash = this.flashStates.get(entityId);
+      this.applyVisualState(
+        object,
+        entityId,
+        flash ? Math.max(0, flash.remainingSeconds / flash.durationSeconds) * flash.strength : 0,
+        flash?.color,
+      );
+    }
+  }
+
+  setPlayerDangerLevel(level: number): void {
+    this.playerDangerLevel = Math.max(0, Math.min(1, level));
+  }
+
   spawnFloatingMarker(
     entityId: string,
     text: string,
@@ -480,7 +544,8 @@ export class SceneRuntime {
     const group = new THREE.Group();
     group.name = entity.id;
     group.userData.entityId = entity.id;
-    group.userData.legibilityState = inferEntityLegibilityState(entity);
+    group.userData.baseLegibilityState = inferEntityLegibilityState(entity);
+    group.userData.legibilityState = { ...group.userData.baseLegibilityState };
 
     const object = entity.components.render
       ? this.buildRenderable(entity)
@@ -833,6 +898,72 @@ export class SceneRuntime {
       marker.element.remove();
     }
     this.floatingMarkers.clear();
+  }
+
+  private createHealthBar(entityId: string, current: number, max: number): void {
+    const element = document.createElement("div");
+    element.className = "health-bar";
+    const label = document.createElement("span");
+    label.className = "health-bar-label";
+    const track = document.createElement("div");
+    track.className = "health-bar-track";
+    const fill = document.createElement("div");
+    fill.className = "health-bar-fill";
+    track.appendChild(fill);
+    element.append(label, track);
+    this.healthBarLayer.appendChild(element);
+    this.healthBars.set(entityId, {
+      element,
+      fill,
+      label,
+      current,
+      max: Math.max(1, max),
+    });
+  }
+
+  private tickHealthBars(): void {
+    for (const [entityId, bar] of this.healthBars) {
+      const object = this.entityMap.get(entityId);
+      if (!object) {
+        bar.element.remove();
+        this.healthBars.delete(entityId);
+        continue;
+      }
+
+      const ratio = Math.max(0, Math.min(1, bar.current / Math.max(1, bar.max)));
+      bar.fill.style.width = `${(ratio * 100).toFixed(1)}%`;
+      bar.label.textContent = `${Math.max(0, Math.round(bar.current))}/${Math.max(1, Math.round(bar.max))}`;
+      bar.fill.style.background =
+        ratio > 0.65
+          ? "linear-gradient(90deg, #66c88a, #7be0b1)"
+          : ratio > 0.33
+            ? "linear-gradient(90deg, #d6b34c, #efcf68)"
+            : "linear-gradient(90deg, #d85b5b, #ff8e8e)";
+
+      const projected = object.getWorldPosition(new THREE.Vector3());
+      projected.y += 2.35;
+      projected.project(this.camera);
+      const x = ((projected.x + 1) * 0.5) * this.mount.clientWidth;
+      const y = ((1 - projected.y) * 0.5) * this.mount.clientHeight;
+      const isVisible = projected.z > -1 && projected.z < 1 && shouldShowHealthBar(entityId, bar, this.selectedEntityId);
+      bar.element.style.display = isVisible ? "flex" : "none";
+      if (!isVisible) {
+        continue;
+      }
+      bar.element.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px) translate(-50%, -50%)`;
+      bar.element.style.opacity = entityId === this.selectedEntityId ? "1" : ratio < 1 ? "0.96" : "0.72";
+    }
+  }
+
+  private tickDangerOverlay(): void {
+    this.dangerOverlay.style.opacity = `${Math.max(0, Math.min(0.68, this.playerDangerLevel * 0.6))}`;
+  }
+
+  private clearHealthBars(): void {
+    for (const bar of this.healthBars.values()) {
+      bar.element.remove();
+    }
+    this.healthBars.clear();
   }
 
   private applyVisualState(
@@ -1353,6 +1484,20 @@ function inferEntityLegibilityState(entity: ResolvedEntity): {
   return null;
 }
 
+function buildDeadLegibilityState(): {
+  state: "dead";
+  color: string;
+  opacity: number;
+  beaconHeight: number;
+} {
+  return {
+    state: "dead",
+    color: "#7e8a94",
+    opacity: 0.22,
+    beaconHeight: 0,
+  };
+}
+
 function inferEntityMarkerRadius(entity: ResolvedEntity): number {
   const shape = entity.components.physics?.shape;
   if (!shape) {
@@ -1366,6 +1511,21 @@ function inferEntityMarkerRadius(entity: ResolvedEntity): number {
     case "box":
       return (Math.max(shape.size.x, shape.size.z) * 0.5) + 0.08;
   }
+}
+
+function shouldCreateHealthBar(entity: ResolvedEntity): boolean {
+  return entity.id === "player" || entity.tags.includes("enemy") || entity.components.brain?.archetype === "zombie";
+}
+
+function shouldShowHealthBar(
+  entityId: string,
+  bar: HealthBarState,
+  selectedEntityId: string | null,
+): boolean {
+  if (entityId === "player" || entityId === selectedEntityId) {
+    return true;
+  }
+  return bar.current < bar.max || bar.current <= 0;
 }
 
 function parseSectorKey(key: string): { x: number; z: number } {

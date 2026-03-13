@@ -442,6 +442,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
         current: nextCurrent,
       },
     });
+    context.scene.updateEntityHealth(targetId, nextCurrent, health.max);
 
     if (nextCurrent <= 0) {
       const deathAction = this.resolveActionDefinition(resolvedTarget, "death");
@@ -476,6 +477,9 @@ export class ThirdPersonActionModule implements RuntimeModule {
       `-${amount}`,
       resolvedTarget.id === "player" ? "danger" : "damage",
     );
+    if (resolvedTarget.id === "player") {
+      context.scene.setPlayerDangerLevel(1 - (nextCurrent / Math.max(1, health.max)));
+    }
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
@@ -549,6 +553,9 @@ export class ThirdPersonActionModule implements RuntimeModule {
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Hostiles ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
     ];
+    if (player.components.health) {
+      context.scene.setPlayerDangerLevel(1 - (player.components.health.current / Math.max(1, player.components.health.max)));
+    }
 
     if (overrideLine) {
       this.statusLines = [...baseLines, overrideLine];

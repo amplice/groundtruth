@@ -514,6 +514,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
         current: nextCurrent,
       },
     });
+    context.scene.updateEntityHealth(targetId, nextCurrent, health.max);
 
     if (nextCurrent <= 0) {
       const deathAction = this.resolveActionDefinition(resolvedTarget, "death");
@@ -548,6 +549,9 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `-${amount}`,
       resolvedTarget.id === "player" ? "danger" : "damage",
     );
+    if (resolvedTarget.id === "player") {
+      context.scene.setPlayerDangerLevel(1 - (nextCurrent / Math.max(1, health.max)));
+    }
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
@@ -623,6 +627,9 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
       `${this.sectorSummary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
     ];
+    if (player.components.health) {
+      context.scene.setPlayerDangerLevel(1 - (player.components.health.current / Math.max(1, player.components.health.max)));
+    }
 
     if (overrideLine) {
       this.statusLines = [...baseLines, overrideLine];
