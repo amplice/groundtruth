@@ -31,6 +31,7 @@ async function bootstrap(): Promise<void> {
         </div>
         <div class="controls">
           <button id="load-generated">Generate Flat Outpost</button>
+          <button id="load-scale-test">Generate Scale Test</button>
           <button id="load-sample">Load Survival Slice</button>
           <button id="reset-world" class="secondary">Reset World</button>
           <button id="stress-world" class="secondary">Stress Test Swaps</button>
@@ -961,6 +962,7 @@ async function bootstrap(): Promise<void> {
       `Draw calls: ${renderStats.drawCalls}`,
       `Triangles: ${renderStats.triangleCount}`,
       `Objects: ${renderStats.objectCount}`,
+      `Sectors: ${diagnostics.occupiedSectorCount}`,
       `Physics colliders: ${physics.getColliderCount()}`,
       `Physics syncs: ${physicsStats.syncCount}`,
       `Retired worlds: ${physicsStats.retiredWorlds}`,
@@ -1000,6 +1002,25 @@ async function bootstrap(): Promise<void> {
       }),
     );
     appendEvent("Requested generated flat outpost world.");
+  };
+
+  const buildScaleTestWorld = (): void => {
+    const scaleSeed = parseNumber(seedInput.value, defaultFlatWorldOptions.seed, 1) + 1000;
+    seedInput.value = String(scaleSeed);
+    sizeInput.value = "180";
+    buildingInput.value = "28";
+    zombieInput.value = "240";
+    crateInput.value = "18";
+    store.setWorld(
+      makeFlatOutpostWorld({
+        seed: scaleSeed,
+        worldHalfExtent: 180,
+        buildingCount: 28,
+        zombieCount: 240,
+        crateCount: 18,
+      }),
+    );
+    appendEvent("Requested scale-test outpost world.");
   };
 
   const enqueueStressTest = (): void => {
@@ -1146,6 +1167,10 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#load-generated")?.addEventListener("click", () => {
     buildGeneratedWorld();
+  });
+
+  root.querySelector<HTMLButtonElement>("#load-scale-test")?.addEventListener("click", () => {
+    buildScaleTestWorld();
   });
 
   root.querySelector<HTMLButtonElement>("#load-sample")?.addEventListener("click", () => {

@@ -131,6 +131,8 @@ export class SceneRuntime {
 
   private currentSectorOverlay: RuntimeSectorOverlay | null = null;
 
+  private currentSectorOverlaySignature = "";
+
   constructor(
     private readonly mount: HTMLElement,
     private readonly onSelect: (selection: SelectionTarget) => void,
@@ -217,7 +219,12 @@ export class SceneRuntime {
   }
 
   setSectorOverlay(overlay: RuntimeSectorOverlay | null): void {
+    const signature = overlay ? JSON.stringify(overlay) : "";
+    if (signature === this.currentSectorOverlaySignature) {
+      return;
+    }
     this.currentSectorOverlay = overlay;
+    this.currentSectorOverlaySignature = signature;
     this.rebuildSectorOverlay();
   }
 
