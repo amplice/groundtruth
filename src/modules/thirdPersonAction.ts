@@ -23,27 +23,27 @@ interface MotionSample {
 type HostileActivityTier = "active" | "throttled" | "sleeping";
 
 export class ThirdPersonActionModule implements RuntimeModule {
-  readonly id = "third_person";
+  readonly id: RuntimeModule["id"] = "third_person";
 
-  private readonly cooldowns = new Map<string, number>();
+  protected readonly cooldowns = new Map<string, number>();
 
-  private readonly animationLocks = new Map<string, AnimationLock>();
+  protected readonly animationLocks = new Map<string, AnimationLock>();
 
-  private readonly motionSamples = new Map<string, MotionSample>();
+  protected readonly motionSamples = new Map<string, MotionSample>();
 
-  private readonly hostileUpdateAccumulatedDt = new Map<string, number>();
+  protected readonly hostileUpdateAccumulatedDt = new Map<string, number>();
 
-  private readonly hostileActivityTiers = new Map<string, HostileActivityTier>();
+  protected readonly hostileActivityTiers = new Map<string, HostileActivityTier>();
 
-  private recentEvents: string[] = [];
+  protected recentEvents: string[] = [];
 
-  private statusLines = [
+  protected statusLines = [
     "WASD move | Shift sprint | Space attack | E interact",
   ];
 
-  private debugFindings = ["No runtime findings."];
+  protected debugFindings = ["No runtime findings."];
 
-  private hostileActivityCounts = {
+  protected hostileActivityCounts = {
     active: 0,
     throttled: 0,
     sleeping: 0,
@@ -135,7 +135,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return [...this.recentEvents];
   }
 
-  private updatePlayerMovement(
+  protected updatePlayerMovement(
     dtSeconds: number,
     context: ModuleContext,
     playerId: string,
@@ -186,8 +186,8 @@ export class ThirdPersonActionModule implements RuntimeModule {
     context.scene.updateFollowCamera(playerId, cameraRig);
   }
 
-  private tryPlayerAttack(context: ModuleContext, playerId: string): void {
-    if (!context.input.consumePress("Space") || !this.cooldownReady(playerId)) {
+  protected tryPlayerAttack(context: ModuleContext, playerId: string): void {
+    if (!context.input.consumePress(this.getAttackKey()) || !this.cooldownReady(playerId)) {
       return;
     }
 
@@ -212,7 +212,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     if (!target) {
       this.pushEvent("Player attack missed.");
       this.statusLines = [
-        "WASD move | Shift sprint | Space attack | E interact",
+        this.getControlLine(),
         `Player HP ${this.readHealth(resolvedPlayer)}`,
         "Attack missed. No hostile in range.",
       ];
@@ -223,7 +223,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     this.pushEvent(`Player hit ${target.name} for ${combat.damage}.`);
   }
 
-  private tryPlayerInteraction(context: ModuleContext, playerId: string): void {
+  protected tryPlayerInteraction(context: ModuleContext, playerId: string): void {
     if (!context.input.consumePress("KeyE")) {
       return;
     }
@@ -242,7 +242,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     const interactive = this.findNearestInteractive(world, resolvedPlayer);
     if (!interactive || !interactive.components.interaction) {
       this.statusLines = [
-        "WASD move | Shift sprint | Space attack | E interact",
+        this.getControlLine(),
         `Player HP ${this.readHealth(resolvedPlayer)}`,
         "Nothing to interact with.",
       ];
@@ -251,7 +251,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
 
     if (interactive.components.interaction.kind !== "loot") {
       this.statusLines = [
-        "WASD move | Shift sprint | Space attack | E interact",
+        this.getControlLine(),
         `Player HP ${this.readHealth(resolvedPlayer)}`,
         interactive.components.interaction.prompt,
       ];
@@ -261,7 +261,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     const containerInventory = interactive.components.inventory;
     if (!containerInventory || containerInventory.itemIds.length === 0) {
       this.statusLines = [
-        "WASD move | Shift sprint | Space attack | E interact",
+        this.getControlLine(),
         `Player HP ${this.readHealth(resolvedPlayer)}`,
         `${interactive.name} is empty.`,
       ];
@@ -269,7 +269,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     }
     if (playerInventory.itemIds.length >= playerInventory.maxSlots) {
       this.statusLines = [
-        "WASD move | Shift sprint | Space attack | E interact",
+        this.getControlLine(),
         `Player HP ${this.readHealth(resolvedPlayer)}`,
         "Inventory full.",
       ];
@@ -294,7 +294,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     this.pushEvent(`Player looted ${itemId} from ${interactive.name}.`);
   }
 
-  private updateHostiles(
+  protected updateHostiles(
     dtSeconds: number,
     context: ModuleContext,
     playerId: string,
@@ -419,7 +419,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     }
   }
 
-  private applyDamage(
+  protected applyDamage(
     context: ModuleContext,
     targetId: string,
     amount: number,
@@ -479,7 +479,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     this.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
   }
 
-  private findNearestHostile(
+  protected findNearestHostile(
     world: ReturnType<ModuleContext["store"]["peekWorld"]>,
     source: ResolvedEntity,
     range: number,
@@ -510,7 +510,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return best;
   }
 
-  private findNearestInteractive(
+  protected findNearestInteractive(
     world: ReturnType<ModuleContext["store"]["peekWorld"]>,
     source: ResolvedEntity,
   ): ResolvedEntity | null {
@@ -537,7 +537,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return best;
   }
 
-  private updateStatus(
+  protected updateStatus(
     context: ModuleContext,
     player: ResolvedEntity,
     overrideLine?: string,
@@ -545,7 +545,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     const interactive = this.findNearestInteractive(context.store.peekWorld(), player);
     const inventory = player.components.inventory;
     const baseLines = [
-      "WASD move | Shift sprint | Space attack | E interact",
+      this.getControlLine(),
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Hostiles ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
     ];
@@ -558,10 +558,10 @@ export class ThirdPersonActionModule implements RuntimeModule {
       this.statusLines = [...baseLines, interactive.components.interaction.prompt];
       return;
     }
-    this.statusLines = [...baseLines, "Use generated worlds as a third-person action sandbox."];
+    this.statusLines = [...baseLines, this.getIdlePrompt()];
   }
 
-  private updateDebugFindings(
+  protected updateDebugFindings(
     context: ModuleContext,
     player: ResolvedEntity,
   ): void {
@@ -592,7 +592,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     this.debugFindings = findings;
   }
 
-  private syncAnimationState(
+  protected syncAnimationState(
     context: ModuleContext,
     entityId: string,
     state: string,
@@ -629,7 +629,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     context.scene.updateEntityAnimation(entityId, nextAnimation);
   }
 
-  private tickCooldowns(dtSeconds: number): void {
+  protected tickCooldowns(dtSeconds: number): void {
     for (const [entityId, remaining] of this.cooldowns) {
       const next = remaining - dtSeconds;
       if (next <= 0) {
@@ -640,7 +640,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     }
   }
 
-  private tickAnimationLocks(dtSeconds: number, context: ModuleContext): void {
+  protected tickAnimationLocks(dtSeconds: number, context: ModuleContext): void {
     for (const [entityId, lock] of this.animationLocks) {
       if (!Number.isFinite(lock.remainingSeconds)) {
         continue;
@@ -664,7 +664,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     }
   }
 
-  private recordHostileMotion(
+  protected recordHostileMotion(
     entityId: string,
     position: Vec3,
     chasing: boolean,
@@ -689,18 +689,18 @@ export class ThirdPersonActionModule implements RuntimeModule {
     });
   }
 
-  private lockAnimationState(entityId: string, state: string, durationSeconds: number): void {
+  protected lockAnimationState(entityId: string, state: string, durationSeconds: number): void {
     this.animationLocks.set(entityId, {
       state,
       remainingSeconds: durationSeconds,
     });
   }
 
-  private cooldownReady(entityId: string): boolean {
+  protected cooldownReady(entityId: string): boolean {
     return !this.cooldowns.has(entityId);
   }
 
-  private consumeHostileUpdateDt(
+  protected consumeHostileUpdateDt(
     entityId: string,
     dtSeconds: number,
     intervalSeconds: number,
@@ -720,11 +720,11 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return accumulated;
   }
 
-  private setCooldown(entityId: string, seconds: number): void {
+  protected setCooldown(entityId: string, seconds: number): void {
     this.cooldowns.set(entityId, seconds);
   }
 
-  private pushEvent(message: string): void {
+  protected pushEvent(message: string): void {
     const line = `${new Date().toLocaleTimeString()} | ${message}`;
     this.recentEvents.unshift(line);
     if (this.recentEvents.length > 24) {
@@ -732,7 +732,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     }
   }
 
-  private resolveActionDuration(
+  protected resolveActionDuration(
     context: ModuleContext,
     entityId: string,
     action: ActionDefinition,
@@ -745,7 +745,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return Math.max(clipDuration / Math.max(speed, 0.01) + 0.06, 0.2);
   }
 
-  private resolveActionDefinition(entity: ResolvedEntity, actionId: string): ActionDefinition {
+  protected resolveActionDefinition(entity: ResolvedEntity, actionId: string): ActionDefinition {
     return entity.components.actions?.[actionId] ?? {
       state: actionId,
       loop: this.defaultLoopModeForState(actionId),
@@ -755,7 +755,7 @@ export class ThirdPersonActionModule implements RuntimeModule {
     };
   }
 
-  private syncAction(
+  protected syncAction(
     context: ModuleContext,
     entityId: string,
     action: ActionDefinition,
@@ -767,14 +767,14 @@ export class ThirdPersonActionModule implements RuntimeModule {
     });
   }
 
-  private defaultLoopModeForState(state: string): AnimationLoopMode {
+  protected defaultLoopModeForState(state: string): AnimationLoopMode {
     if (state === "attack" || state === "death" || state === "hurt") {
       return "once";
     }
     return "repeat";
   }
 
-  private isHostile(entity: ResolvedEntity): boolean {
+  protected isHostile(entity: ResolvedEntity): boolean {
     if (entity.id === "player") {
       return false;
     }
@@ -785,11 +785,11 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return archetype === "zombie" || archetype === "turret";
   }
 
-  private isDead(entity: ResolvedEntity): boolean {
+  protected isDead(entity: ResolvedEntity): boolean {
     return (entity.components.health?.current ?? 1) <= 0;
   }
 
-  private readHealth(entity: ResolvedEntity): string {
+  protected readHealth(entity: ResolvedEntity): string {
     const health = entity.components.health;
     if (!health) {
       return "n/a";
@@ -797,19 +797,31 @@ export class ThirdPersonActionModule implements RuntimeModule {
     return `${health.current}/${health.max}`;
   }
 
-  private distanceBetween(left: ResolvedEntity, right: ResolvedEntity): number {
+  protected distanceBetween(left: ResolvedEntity, right: ResolvedEntity): number {
     return Math.hypot(
       left.transform.position.x - right.transform.position.x,
       left.transform.position.z - right.transform.position.z,
     );
   }
 
-  private mustFindEntity(context: ModuleContext, entityId: string): EntitySpec {
+  protected mustFindEntity(context: ModuleContext, entityId: string): EntitySpec {
     const entity = context.store.peekWorld().entities.find((item) => item.id === entityId);
     if (!entity) {
       throw new Error(`Expected entity '${entityId}' to exist.`);
     }
     return entity;
+  }
+
+  protected getControlLine(): string {
+    return "WASD move | Shift sprint | Space attack | E interact";
+  }
+
+  protected getIdlePrompt(): string {
+    return "Use generated worlds as a third-person action sandbox.";
+  }
+
+  protected getAttackKey(): string {
+    return "Space";
   }
 }
 

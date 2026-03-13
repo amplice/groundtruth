@@ -299,7 +299,7 @@ export class SceneRuntime {
   }
 
   updateFollowCamera(targetId: string, rig?: CameraRigComponent): void {
-    if (!rig || rig.mode !== "follow") {
+    if (!rig || (rig.mode !== "follow" && rig.mode !== "top_down" && rig.mode !== "isometric")) {
       return;
     }
     const object = this.entityMap.get(targetId);
@@ -307,14 +307,20 @@ export class SceneRuntime {
       return;
     }
     const target = object.position.clone();
-    const distance = rig.distance ?? 6.5;
-    const pitch = rig.pitch ?? 0.55;
-    const yaw = rig.yaw ?? 0.75;
-    const offset = new THREE.Vector3(
-      Math.sin(yaw) * Math.cos(pitch) * distance,
-      Math.sin(pitch) * distance + 1.25,
-      Math.cos(yaw) * Math.cos(pitch) * distance,
-    );
+    let offset: THREE.Vector3;
+    if (rig.mode === "top_down") {
+      const distance = rig.distance ?? 20;
+      offset = new THREE.Vector3(0.001, distance, 0.001);
+    } else {
+      const distance = rig.distance ?? (rig.mode === "isometric" ? 14 : 6.5);
+      const pitch = rig.pitch ?? (rig.mode === "isometric" ? 0.78 : 0.55);
+      const yaw = rig.yaw ?? (rig.mode === "isometric" ? 0.85 : 0.75);
+      offset = new THREE.Vector3(
+        Math.sin(yaw) * Math.cos(pitch) * distance,
+        Math.sin(pitch) * distance + 1.25,
+        Math.cos(yaw) * Math.cos(pitch) * distance,
+      );
+    }
     this.camera.position.lerp(target.clone().add(offset), 0.12);
     this.controls.target.lerp(target, 0.2);
   }

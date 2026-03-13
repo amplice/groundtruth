@@ -3,6 +3,7 @@ export type GameMode =
   | "open_world"
   | "first_person"
   | "third_person"
+  | "top_down"
   | "action"
   | "rpg"
   | "rts"

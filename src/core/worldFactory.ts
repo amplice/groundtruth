@@ -70,6 +70,33 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
         },
       },
     },
+    platform_block: {
+      id: "platform_block",
+      name: "Platform Block",
+      category: "terrain",
+      description: "Raised traversal platform for platformer and vertical slices.",
+      placement: {
+        defaultHeight: 2,
+        minScale: 0.6,
+        maxScale: 4,
+      },
+      tags: ["platform"],
+      components: {
+        render: {
+          type: "primitive",
+          primitive: "box",
+          size: makeVec3(6, 1, 2),
+          color: "#8a7658",
+        },
+        physics: {
+          body: "static",
+          shape: {
+            type: "box",
+            size: makeVec3(6, 1, 2),
+          },
+        },
+      },
+    },
     player_survivor: {
       id: "player_survivor",
       name: "Player Survivor",

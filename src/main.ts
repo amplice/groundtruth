@@ -2,7 +2,7 @@ import "./styles.css";
 
 import { parseCommandScript } from "./core/commands";
 import { evaluateWorld } from "./core/evaluation";
-import { ModelRenderComponent, ZoneSpec, emptyWorld, makeVec3, resolveEntity } from "./core/schema";
+import { GameMode, ModelRenderComponent, WorldDocument, ZoneSpec, emptyWorld, makeVec3, resolveEntity } from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
@@ -442,7 +442,7 @@ async function bootstrap(): Promise<void> {
 
   const stampWorldMode = <T extends ReturnType<WorldStore["getWorld"]>>(world: T): T => {
     const gameMode = gameModeTemplateInput.value || world.gameMode;
-    return {
+    return applyGameModeTuning({
       ...world,
       gameMode,
       metadata: {
@@ -452,7 +452,7 @@ async function bootstrap(): Promise<void> {
             ? world.metadata.name
             : `${world.metadata.name} [${gameMode}]`,
       },
-    };
+    }) as T;
   };
 
   const getSelectedZone = (world = store.peekWorld()) =>
@@ -1389,6 +1389,120 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap();
+
+function applyGameModeTuning(world: WorldDocument): WorldDocument {
+  const nextWorld: WorldDocument = JSON.parse(JSON.stringify(world)) as WorldDocument;
+  const player = nextWorld.entities.find((entity) => entity.id === "player");
+  if (player) {
+    player.components = {
+      ...player.components,
+      cameraRig: resolveCameraRigForMode(nextWorld.gameMode),
+    };
+  }
+
+  if (nextWorld.gameMode === "platformer" && !nextWorld.entities.some((entity) => entity.id.startsWith("platform.template."))) {
+    nextWorld.entities.push(...buildPlatformerTemplatePlatforms(nextWorld));
+  }
+
+  if (nextWorld.gameMode === "platformer") {
+    let hostileIndex = 0;
+    let lootIndex = 0;
+    for (const entity of nextWorld.entities) {
+      const tags = entity.tags ?? [];
+      const isPlayer = entity.id === "player";
+      const isHostile = tags.includes("enemy");
+      const isLoot = tags.includes("loot") || entity.prefabId === "loot_crate";
+      if (!(isPlayer || isHostile || isLoot)) {
+        continue;
+      }
+      entity.transform.position.z = 0;
+      if (isPlayer) {
+        entity.transform.position.x = -36;
+        entity.transform.position.y = 1.1;
+      } else if (isHostile) {
+        entity.transform.position.x = -6 + (hostileIndex * 10);
+        entity.transform.position.y = hostileIndex % 2 === 0 ? 1.1 : 4.7;
+        hostileIndex += 1;
+      } else if (isLoot) {
+        entity.transform.position.x = -16 + (lootIndex * 20);
+        entity.transform.position.y = lootIndex % 2 === 0 ? 2.5 : 7.1;
+        lootIndex += 1;
+      }
+    }
+  }
+
+  return nextWorld;
+}
+
+function resolveCameraRigForMode(gameMode: GameMode) {
+  switch (gameMode) {
+    case "top_down":
+      return {
+        mode: "top_down" as const,
+        distance: 24,
+        pitch: 1.35,
+        yaw: 0,
+      };
+    case "platformer":
+      return {
+        mode: "follow" as const,
+        distance: 13.5,
+        pitch: 0.12,
+        yaw: -Math.PI * 0.5,
+      };
+    case "third_person":
+      return {
+        mode: "follow" as const,
+        distance: 8.5,
+        pitch: 0.55,
+        yaw: 0.75,
+      };
+    default:
+      return undefined;
+  }
+}
+
+function buildPlatformerTemplatePlatforms(world: WorldDocument) {
+  const span = Math.max(28, Math.min(58, world.settings.gridSize * 0.32));
+  return [
+    {
+      id: "platform.template.1",
+      name: "Platform Lane 1",
+      prefabId: "platform_block",
+      transform: {
+        position: makeVec3(-span * 0.45, 2.4, 0),
+        scale: makeVec3(1.2, 1, 1),
+      },
+    },
+    {
+      id: "platform.template.2",
+      name: "Platform Lane 2",
+      prefabId: "platform_block",
+      transform: {
+        position: makeVec3(-span * 0.12, 4.6, 0),
+        scale: makeVec3(0.9, 1, 1),
+      },
+    },
+    {
+      id: "platform.template.3",
+      name: "Platform Lane 3",
+      prefabId: "platform_block",
+      transform: {
+        position: makeVec3(span * 0.18, 6.8, 0),
+        scale: makeVec3(0.9, 1, 1),
+      },
+    },
+    {
+      id: "platform.template.4",
+      name: "Platform Lane 4",
+      prefabId: "platform_block",
+      transform: {
+        position: makeVec3(span * 0.48, 9.2, 0),
+        scale: makeVec3(1.25, 1, 1),
+      },
+    },
+  ];
+}
 
 function parseNumber(source: string, fallback: number, minimum: number): number {
   const value = Number.parseInt(source, 10);

@@ -1,5 +1,7 @@
 import { GameMode } from "../core/schema";
+import { PlatformerModule } from "./platformerModule";
 import { SandboxModule } from "./sandboxModule";
+import { TopDownActionModule } from "./topDownAction";
 import { ThirdPersonActionModule } from "./thirdPersonAction";
 import { ThirdPersonSurvivalModule } from "./thirdPersonSurvival";
 import { RuntimeModule } from "./types";
@@ -29,6 +31,12 @@ const runtimeModuleDescriptors: RuntimeModuleDescriptor[] = [
     label: "First-Person",
     description: "First-person camera, weapons, and interaction presets.",
     implemented: false,
+  },
+  {
+    id: "top_down",
+    label: "Top-Down Action",
+    description: "Overhead camera action preset with direct world-axis movement.",
+    implemented: true,
   },
   {
     id: "third_person",
@@ -76,7 +84,7 @@ const runtimeModuleDescriptors: RuntimeModuleDescriptor[] = [
     id: "platformer",
     label: "Platformer",
     description: "Platform movement, jump arcs, and traversal challenge preset.",
-    implemented: false,
+    implemented: true,
   },
   {
     id: "driving",
@@ -120,6 +128,10 @@ export function createRuntimeModule(gameMode: GameMode): RuntimeModule {
       return new ThirdPersonSurvivalModule();
     case "third_person":
       return new ThirdPersonActionModule();
+    case "top_down":
+      return new TopDownActionModule();
+    case "platformer":
+      return new PlatformerModule();
     default:
       return new SandboxModule(gameMode);
   }
