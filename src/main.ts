@@ -177,6 +177,13 @@ async function bootstrap(): Promise<void> {
         </section>
         <section class="section">
           <div class="section-head">
+            <h2>Sectors</h2>
+            <span>Population/debug</span>
+          </div>
+          <pre id="sector-status"></pre>
+        </section>
+        <section class="section">
+          <div class="section-head">
             <h2>Scene</h2>
             <span>Entities and zones</span>
           </div>
@@ -284,6 +291,7 @@ async function bootstrap(): Promise<void> {
   const diagnosticsNode = root.querySelector<HTMLElement>("#diagnostics");
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
+  const sectorStatusNode = root.querySelector<HTMLElement>("#sector-status");
   const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
   const authoringPaletteNode = root.querySelector<HTMLElement>("#authoring-palette");
   const sceneSearchInput = root.querySelector<HTMLInputElement>("#scene-search");
@@ -325,6 +333,7 @@ async function bootstrap(): Promise<void> {
     !diagnosticsNode ||
     !evaluationNode ||
     !sessionNode ||
+    !sectorStatusNode ||
     !sceneInventoryNode ||
     !authoringPaletteNode ||
     !sceneSearchInput ||
@@ -869,6 +878,7 @@ async function bootstrap(): Promise<void> {
     const diagnostics = store.getDiagnostics();
     const evaluation = evaluateWorld(world);
     const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
+    const worldDebugLines = runtimeModule.getWorldDebug?.(world) ?? [];
     const moduleEvents = runtimeModule.getRecentEvents?.() ?? [];
     const selectedEntityId = store.getSelectedEntityId();
     const selectedZone = getSelectedZone(world);
@@ -896,6 +906,7 @@ async function bootstrap(): Promise<void> {
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
+    sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     sessionNode.textContent += `\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,

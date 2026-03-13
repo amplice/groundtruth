@@ -132,6 +132,10 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     return [...this.debugFindings];
   }
 
+  getWorldDebug(_world: ReturnType<ModuleContext["store"]["peekWorld"]>): string[] {
+    return this.sectorPopulation.getDebugLines();
+  }
+
   getEntityDebug(
     world: ReturnType<ModuleContext["store"]["peekWorld"]>,
     entityId: string,

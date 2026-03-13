@@ -16,6 +16,7 @@ export interface RuntimeModule {
   update(dtSeconds: number, context: ModuleContext): void;
   getStatusLines?(): string[];
   getDebugFindings?(): string[];
+  getWorldDebug?(world: WorldDocument): string[];
   getEntityDebug?(world: WorldDocument, entityId: string): string[];
   getRecentEvents?(): string[];
 }

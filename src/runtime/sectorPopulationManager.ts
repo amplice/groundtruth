@@ -26,6 +26,12 @@ interface SectorSpawnPool {
   groundY: number;
 }
 
+interface SectorDebugRecord {
+  sectorKey: string;
+  pooled: number;
+  dormant: number;
+}
+
 export class SectorPopulationManager {
   private readonly dormantEntities = new Map<string, EntitySpec>();
 
@@ -38,6 +44,8 @@ export class SectorPopulationManager {
   private residentSignature = "";
 
   private spawnCounter = 1;
+
+  private currentSectorSize = 1;
 
   private stats: SectorPopulationStats = {
     centerSector: "n/a",
@@ -57,6 +65,7 @@ export class SectorPopulationManager {
     this.syncRevision(store.getWorldRevision());
 
     const sectorSize = world.settings.sectorSize;
+    this.currentSectorSize = sectorSize;
     const centerCoord = sectorCoordForPoint(center, sectorSize);
     const residentKeys = new Set<string>();
     for (let dz = -sectorRadius; dz <= sectorRadius; dz += 1) {
@@ -144,6 +153,36 @@ export class SectorPopulationManager {
 
   getStats(): SectorPopulationStats {
     return { ...this.stats };
+  }
+
+  getDebugLines(limit = 6): string[] {
+    const sectorRecords = this.buildSectorRecords()
+      .sort((left, right) => {
+        const leftTotal = left.pooled + left.dormant;
+        const rightTotal = right.pooled + right.dormant;
+        return rightTotal - leftTotal;
+      })
+      .slice(0, limit);
+
+    const lines = [
+      `Center sector: ${this.stats.centerSector}`,
+      `Resident sectors: ${this.stats.residentSectorCount}`,
+      `Dormant exact: ${this.stats.dormantCount}`,
+      `Pooled far-field: ${this.stats.pooledCount}`,
+      `Last swap: +${this.stats.lastActivated} activated / -${this.stats.lastParked} parked`,
+    ];
+
+    if (sectorRecords.length === 0) {
+      lines.push("No dormant or pooled sectors tracked.");
+      return lines;
+    }
+
+    for (const record of sectorRecords) {
+      lines.push(
+        `Sector ${record.sectorKey}: ${record.pooled} pooled, ${record.dormant} dormant`,
+      );
+    }
+    return lines;
   }
 
   private syncRevision(currentRevision: number): void {
@@ -273,6 +312,30 @@ export class SectorPopulationManager {
       total += pool.count;
     }
     return total;
+  }
+
+  private buildSectorRecords(): SectorDebugRecord[] {
+    const records = new Map<string, SectorDebugRecord>();
+    for (const entity of this.dormantEntities.values()) {
+      const sectorKey = sectorKeyForPoint(entity.transform.position, this.currentSectorSize);
+      const record = records.get(sectorKey) ?? {
+        sectorKey,
+        pooled: 0,
+        dormant: 0,
+      };
+      record.dormant += 1;
+      records.set(record.sectorKey, record);
+    }
+    for (const pool of this.sectorPools.values()) {
+      const record = records.get(pool.sectorKey) ?? {
+        sectorKey: pool.sectorKey,
+        pooled: 0,
+        dormant: 0,
+      };
+      record.pooled += pool.count;
+      records.set(record.sectorKey, record);
+    }
+    return [...records.values()];
   }
 }
 
