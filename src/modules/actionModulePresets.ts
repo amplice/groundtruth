@@ -5,7 +5,7 @@ export type ActionPlayerMovementMode = "third_person" | "top_down" | "platformer
 export type ActionHostileBehavior = "arena_3d" | "lane_2d";
 
 export interface ActionModulePreset {
-  id: Extract<GameMode, "third_person" | "top_down" | "platformer">;
+  id: Extract<GameMode, "third_person" | "third_person_survival" | "top_down" | "platformer">;
   controlLine: string;
   idlePrompt: string;
   attackKey: string;
@@ -21,6 +21,23 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
   id: "third_person",
   controlLine: "WASD move | Shift sprint | Space attack | E interact",
   idlePrompt: "Use generated worlds as a third-person action sandbox.",
+  attackKey: "Space",
+  cameraRig: {
+    mode: "follow",
+    distance: 8.5,
+    pitch: 0.55,
+    yaw: 0.75,
+  },
+  playerMovementMode: "third_person",
+  hostileBehavior: "arena_3d",
+  worldLayout: "third_person",
+  sprintMultiplier: 1.5,
+};
+
+export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
+  id: "third_person_survival",
+  controlLine: "WASD move | Shift sprint | Space attack | E loot",
+  idlePrompt: "Explore the generated world or load the authored slice.",
   attackKey: "Space",
   cameraRig: {
     mode: "follow",
@@ -71,6 +88,7 @@ export const PLATFORMER_ACTION_PRESET: ActionModulePreset = {
 
 const actionModulePresetMap: Record<ActionModulePreset["id"], ActionModulePreset> = {
   third_person: THIRD_PERSON_ACTION_PRESET,
+  third_person_survival: THIRD_PERSON_SURVIVAL_PRESET,
   top_down: TOP_DOWN_ACTION_PRESET,
   platformer: PLATFORMER_ACTION_PRESET,
 };

@@ -64,9 +64,16 @@ export class PresetActionModule implements RuntimeModule {
   }
 
   update(dtSeconds: number, context: ModuleContext): void {
+    this.beginFrame(dtSeconds, context);
+    this.runFrame(dtSeconds, context);
+  }
+
+  protected beginFrame(dtSeconds: number, context: ModuleContext): void {
     this.tickCooldowns(dtSeconds);
     this.tickAnimationLocks(dtSeconds, context);
+  }
 
+  protected runFrame(dtSeconds: number, context: ModuleContext): void {
     const world = context.store.peekWorld();
     const player = world.entities.find((entity) => entity.id === "player");
     if (!player) {
