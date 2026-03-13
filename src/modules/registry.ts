@@ -1,5 +1,6 @@
 import { GameMode } from "../core/schema";
 import { SandboxModule } from "./sandboxModule";
+import { ThirdPersonActionModule } from "./thirdPersonAction";
 import { ThirdPersonSurvivalModule } from "./thirdPersonSurvival";
 import { RuntimeModule } from "./types";
 
@@ -33,7 +34,7 @@ const runtimeModuleDescriptors: RuntimeModuleDescriptor[] = [
     id: "third_person",
     label: "Third-Person Action",
     description: "Third-person follow-camera action preset without survival assumptions.",
-    implemented: false,
+    implemented: true,
   },
   {
     id: "action",
@@ -117,6 +118,8 @@ export function createRuntimeModule(gameMode: GameMode): RuntimeModule {
   switch (gameMode) {
     case "third_person_survival":
       return new ThirdPersonSurvivalModule();
+    case "third_person":
+      return new ThirdPersonActionModule();
     default:
       return new SandboxModule(gameMode);
   }
