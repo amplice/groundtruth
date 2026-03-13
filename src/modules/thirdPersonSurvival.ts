@@ -76,11 +76,11 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       );
       this.statusLines = [
         "WASD move | Shift sprint | Space attack | E loot",
-        `Sector swap in progress | Dormant zombies ${populationStats.dormantCount}`,
+        `Sector swap in progress | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount}`,
       ];
       this.debugFindings = [
         `Sector population rebalance at ${populationStats.centerSector}.`,
-        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}.`,
+        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}, pooled ${populationStats.pooledCount}.`,
       ];
       return;
     }
@@ -591,7 +591,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
-      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount}`,
+      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount} | Pooled ${this.sectorPopulation.getStats().pooledCount}`,
     ];
 
     if (overrideLine) {
@@ -634,7 +634,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.zombieActivityCounts.active} active, ${this.zombieActivityCounts.throttled} throttled, ${this.zombieActivityCounts.sleeping} sleeping`,
-      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount}`,
+      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount} | Pooled ${this.sectorPopulation.getStats().pooledCount}`,
     ];
 
     if (stuckZombies.length > 0) {
