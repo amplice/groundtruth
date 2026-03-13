@@ -1,5 +1,5 @@
 import { WorldStore } from "../core/worldStore";
-import { SectorLifecycleState, WorldDocument } from "../core/schema";
+import { SectorLifecycleState, SectorPopulationTrend, WorldDocument } from "../core/schema";
 import { InputController } from "../runtime/input";
 import { PhysicsRuntime } from "../runtime/physicsRuntime";
 import { SceneRuntime } from "../runtime/sceneRuntime";
@@ -18,10 +18,12 @@ export interface RuntimeSectorOverlay {
   trackedSectors: Array<{
     sectorKey: string;
     status: SectorLifecycleState;
+    trend: SectorPopulationTrend;
     live: number;
     pooled: number;
     dormant: number;
     recentSeconds: number;
+    offlineSeconds: number;
   }>;
 }
 

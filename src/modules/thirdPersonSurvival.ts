@@ -76,7 +76,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       );
       this.statusLines = [
         "WASD move | Shift sprint | Space attack | E loot",
-        `Sector swap in progress | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount}`,
+        `Sector swap in progress | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
       ];
       this.debugFindings = [
         `Sector population rebalance at ${populationStats.centerSector}.`,
@@ -593,13 +593,14 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     player: ResolvedEntity,
     overrideLine?: string,
   ): void {
+    const populationStats = this.sectorPopulation.getStats();
     const interactive = this.findNearestInteractive(context.store.peekWorld(), player);
     const inventory = player.components.inventory;
     const baseLines = [
       "WASD move | Shift sprint | Space attack | E loot",
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Zombies ${this.zombieActivityCounts.active} active | ${this.zombieActivityCounts.throttled} throttled | ${this.zombieActivityCounts.sleeping} sleeping`,
-      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount} | Pooled ${this.sectorPopulation.getStats().pooledCount}`,
+      `${this.sectorSummary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
     ];
 
     if (overrideLine) {
@@ -622,6 +623,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
     context: ModuleContext,
     player: ResolvedEntity,
   ): void {
+    const populationStats = this.sectorPopulation.getStats();
     const world = context.store.peekWorld();
     const deadZombies = world.entities
       .map((entity) => resolveEntity(world, entity))
@@ -642,7 +644,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.zombieActivityCounts.active} active, ${this.zombieActivityCounts.throttled} throttled, ${this.zombieActivityCounts.sleeping} sleeping`,
-      `${this.sectorSummary} | Dormant ${this.sectorPopulation.getStats().dormantCount} | Pooled ${this.sectorPopulation.getStats().pooledCount}`,
+      `${this.sectorSummary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
     ];
 
     if (stuckZombies.length > 0) {

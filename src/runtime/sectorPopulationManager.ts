@@ -18,6 +18,9 @@ export interface SectorPopulationStats {
   residentSectorCount: number;
   dormantCount: number;
   pooledCount: number;
+  trackedSectorCount: number;
+  growingSectorCount: number;
+  shrinkingSectorCount: number;
   lastParked: number;
   lastActivated: number;
 }
@@ -33,10 +36,12 @@ interface SectorSpawnPool {
 interface SectorDebugRecord {
   sectorKey: string;
   status: SectorLifecycleState;
+  trend: SectorStateSnapshot["trend"];
   live: number;
   pooled: number;
   dormant: number;
   recentSeconds: number;
+  offlineSeconds: number;
 }
 
 export class SectorPopulationManager {
@@ -49,6 +54,12 @@ export class SectorPopulationManager {
   private static readonly RESIDENT_TOP_UP_INTERVAL_SECONDS = 1.2;
 
   private static readonly RECENT_STATE_SECONDS = 8;
+
+  private static readonly OFFLINE_SIMULATION_INTERVAL_SECONDS = 4;
+
+  private static readonly OFFLINE_TARGET_WITH_HOME_ZONE = 10;
+
+  private static readonly OFFLINE_TARGET_WITHOUT_HOME_ZONE = 4;
 
   private readonly dormantEntities = new Map<string, EntitySpec>();
 
@@ -75,6 +86,9 @@ export class SectorPopulationManager {
     residentSectorCount: 0,
     dormantCount: 0,
     pooledCount: 0,
+    trackedSectorCount: 0,
+    growingSectorCount: 0,
+    shrinkingSectorCount: 0,
     lastParked: 0,
     lastActivated: 0,
   };
@@ -104,13 +118,15 @@ export class SectorPopulationManager {
     this.residentSectorKeys = [...residentKeys].sort();
     this.stats.centerSector = `${centerCoord.x}:${centerCoord.z}`;
     this.stats.residentSectorCount = residentKeys.size;
+    const offlineSimulationChanged = this.simulateFarSectors(residentKeys, dtSeconds);
 
     if (!signatureChanged && this.residentTopUpElapsedSeconds < SectorPopulationManager.RESIDENT_TOP_UP_INTERVAL_SECONDS) {
       this.stats.lastActivated = 0;
       this.stats.lastParked = 0;
       this.stats.dormantCount = this.dormantEntities.size;
       this.stats.pooledCount = this.getPooledCount();
-      if (decayedStateChanged) {
+      this.refreshAggregateStats();
+      if (decayedStateChanged || offlineSimulationChanged) {
         store.updateSimulation({
           sectorPools: this.serializePools(),
           sectorStates: this.serializeSectorStates(),
@@ -189,10 +205,11 @@ export class SectorPopulationManager {
     this.stats.lastParked = parked;
     this.stats.dormantCount = this.dormantEntities.size;
     this.stats.pooledCount = this.getPooledCount();
+    this.refreshAggregateStats();
 
     sectorStateChanged = this.refreshSectorStates(residentKeys, liveResidentCounts) || sectorStateChanged;
 
-    if (poolsChanged || sectorStateChanged) {
+    if (poolsChanged || sectorStateChanged || offlineSimulationChanged) {
       store.updateSimulation({
         sectorPools: this.serializePools(),
         sectorStates: this.serializeSectorStates(),
@@ -234,7 +251,7 @@ export class SectorPopulationManager {
 
     for (const record of sectorRecords) {
       lines.push(
-        `Sector ${record.sectorKey} [${record.status}]: live ${record.live}, pooled ${record.pooled}, dormant ${record.dormant}`,
+        `Sector ${record.sectorKey} [${record.status}/${record.trend}]: live ${record.live}, pooled ${record.pooled}, dormant ${record.dormant}, offline ${record.offlineSeconds.toFixed(1)}s`,
       );
     }
     return lines;
@@ -251,10 +268,12 @@ export class SectorPopulationManager {
       .map((record) => ({
         sectorKey: record.sectorKey,
         status: record.status,
+        trend: record.trend,
         live: record.live,
         pooled: record.pooled,
         dormant: record.dormant,
         recentSeconds: record.recentSeconds,
+        offlineSeconds: record.offlineSeconds,
       }));
     return {
       sectorSize: this.currentSectorSize,
@@ -294,6 +313,9 @@ export class SectorPopulationManager {
       residentSectorCount: 0,
       dormantCount: 0,
       pooledCount: 0,
+      trackedSectorCount: 0,
+      growingSectorCount: 0,
+      shrinkingSectorCount: 0,
       lastParked: 0,
       lastActivated: 0,
     };
@@ -314,9 +336,12 @@ export class SectorPopulationManager {
     for (const sectorState of world.simulation?.sectorStates ?? []) {
       this.sectorStates.set(sectorState.sectorKey, {
         ...sectorState,
+        offlineSeconds: sectorState.offlineSeconds ?? 0,
+        trend: sectorState.trend ?? "stable",
       });
     }
     this.stats.pooledCount = this.getPooledCount();
+    this.refreshAggregateStats();
   }
 
   private isManagedEntity(world: WorldDocument, entity: EntitySpec): boolean {
@@ -470,6 +495,104 @@ export class SectorPopulationManager {
     return total;
   }
 
+  private refreshAggregateStats(): void {
+    this.stats.trackedSectorCount = this.sectorStates.size;
+    this.stats.growingSectorCount = [...this.sectorStates.values()].filter((state) => state.trend === "growing").length;
+    this.stats.shrinkingSectorCount = [...this.sectorStates.values()].filter((state) => state.trend === "shrinking").length;
+  }
+
+  private simulateFarSectors(
+    residentKeys: Set<string>,
+    dtSeconds: number,
+  ): boolean {
+    if (dtSeconds <= 0) {
+      return false;
+    }
+
+    let changed = false;
+    for (const [sectorKey, state] of this.sectorStates.entries()) {
+      if (residentKeys.has(sectorKey) || state.liveCount > 0) {
+        if (state.offlineSeconds !== 0 || state.trend !== "stable") {
+          this.sectorStates.set(sectorKey, {
+            ...state,
+            offlineSeconds: 0,
+            trend: "stable",
+          });
+          changed = true;
+        }
+        continue;
+      }
+
+      let nextState: SectorStateSnapshot = {
+        ...state,
+        offlineSeconds: state.offlineSeconds + dtSeconds,
+        trend: state.trend ?? "stable",
+      };
+      let sectorChanged = false;
+      while (nextState.offlineSeconds >= SectorPopulationManager.OFFLINE_SIMULATION_INTERVAL_SECONDS) {
+        nextState.offlineSeconds -= SectorPopulationManager.OFFLINE_SIMULATION_INTERVAL_SECONDS;
+        const delta = this.simulateFarSectorStep(sectorKey);
+        nextState = {
+          ...nextState,
+          trend: delta > 0 ? "growing" : delta < 0 ? "shrinking" : "stable",
+        };
+        if (delta !== 0) {
+          nextState.recentSeconds = Math.max(
+            nextState.recentSeconds,
+            SectorPopulationManager.RECENT_STATE_SECONDS * 0.5,
+          );
+          sectorChanged = true;
+        }
+      }
+
+      if (sectorChanged || !sameSectorState(state, nextState)) {
+        this.sectorStates.set(sectorKey, nextState);
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
+
+  private simulateFarSectorStep(sectorKey: string): number {
+    const pools = [...this.sectorPools.entries()].filter(([, pool]) => pool.sectorKey === sectorKey);
+    if (pools.length === 0) {
+      return 0;
+    }
+
+    pools.sort((left, right) => {
+      const leftTarget = this.getOfflinePoolTarget(left[1]);
+      const rightTarget = this.getOfflinePoolTarget(right[1]);
+      return (leftTarget - left[1].count) - (rightTarget - right[1].count);
+    });
+
+    for (const [poolKey, pool] of pools) {
+      const target = this.getOfflinePoolTarget(pool);
+      if (pool.count < target) {
+        pool.count += 1;
+        this.sectorPools.set(poolKey, pool);
+        return 1;
+      }
+      if (pool.count > target + 2) {
+        pool.count -= 1;
+        if (pool.count <= 0) {
+          this.sectorPools.delete(poolKey);
+        } else {
+          this.sectorPools.set(poolKey, pool);
+        }
+        return -1;
+      }
+    }
+
+    return 0;
+  }
+
+  private getOfflinePoolTarget(pool: SectorSpawnPool): number {
+    return pool.homeZoneId
+      ? SectorPopulationManager.OFFLINE_TARGET_WITH_HOME_ZONE
+      : SectorPopulationManager.OFFLINE_TARGET_WITHOUT_HOME_ZONE;
+  }
+
   private decaySectorStates(dtSeconds: number): boolean {
     if (dtSeconds <= 0) {
       return false;
@@ -535,8 +658,12 @@ export class SectorPopulationManager {
       const pooledCount = record?.pooled ?? 0;
       const dormantCount = record?.dormant ?? 0;
       let recentSeconds = existing?.recentSeconds ?? 0;
+      let offlineSeconds = existing?.offlineSeconds ?? 0;
+      let trend = existing?.trend ?? "stable";
       if (residentKeys.has(sectorKey) || liveCount > 0) {
         recentSeconds = SectorPopulationManager.RECENT_STATE_SECONDS;
+        offlineSeconds = 0;
+        trend = "stable";
       }
 
       const status: SectorLifecycleState =
@@ -565,6 +692,8 @@ export class SectorPopulationManager {
         dormantCount,
         liveCount,
         recentSeconds,
+        offlineSeconds,
+        trend,
       };
       desiredKeys.add(sectorKey);
 
@@ -616,10 +745,12 @@ export class SectorPopulationManager {
       records.set(state.sectorKey, {
         sectorKey: state.sectorKey,
         status: state.status,
+        trend: state.trend,
         live: state.liveCount,
         pooled: state.pooledCount,
         dormant: state.dormantCount,
         recentSeconds: state.recentSeconds,
+        offlineSeconds: state.offlineSeconds,
       });
     }
     for (const entity of this.dormantEntities.values()) {
@@ -627,10 +758,12 @@ export class SectorPopulationManager {
       const record = records.get(sectorKey) ?? {
         sectorKey,
         status: "dormant",
+        trend: "stable",
         live: 0,
         pooled: 0,
         dormant: 0,
         recentSeconds: 0,
+        offlineSeconds: 0,
       };
       record.dormant += 1;
       if (record.status === "depleted") {
@@ -642,10 +775,12 @@ export class SectorPopulationManager {
       const record = records.get(pool.sectorKey) ?? {
         sectorKey: pool.sectorKey,
         status: "dormant",
+        trend: "stable",
         live: 0,
         pooled: 0,
         dormant: 0,
         recentSeconds: 0,
+        offlineSeconds: 0,
       };
       record.pooled += pool.count;
       if (record.status === "depleted") {
@@ -677,9 +812,11 @@ function sameSectorState(left: SectorStateSnapshot, right: SectorStateSnapshot):
   return (
     left.sectorKey === right.sectorKey &&
     left.status === right.status &&
+    left.trend === right.trend &&
     left.pooledCount === right.pooledCount &&
     left.dormantCount === right.dormantCount &&
     left.liveCount === right.liveCount &&
-    Math.abs(left.recentSeconds - right.recentSeconds) < 0.01
+    Math.abs(left.recentSeconds - right.recentSeconds) < 0.01 &&
+    Math.abs(left.offlineSeconds - right.offlineSeconds) < 0.01
   );
 }

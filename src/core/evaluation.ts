@@ -171,6 +171,28 @@ function evaluateSimulationSectors(
       message: `World has ${depletedCount} tracked depleted sectors.`,
     });
   }
+
+  const growingDormantSectors = world.simulation.sectorStates.filter(
+    (sector) => sector.status === "dormant" && sector.trend === "growing" && sector.pooledCount >= 6,
+  );
+  for (const sector of growingDormantSectors.slice(0, 4)) {
+    findings.push({
+      severity: "info",
+      code: "dormant_sector_growth",
+      message: `Dormant sector ${sector.sectorKey} is rebuilding off-screen with ${sector.pooledCount} pooled actors after ${sector.offlineSeconds.toFixed(1)}s offline.`,
+    });
+  }
+
+  const shrinkingDormantSectors = world.simulation.sectorStates.filter(
+    (sector) => sector.status === "dormant" && sector.trend === "shrinking" && sector.pooledCount >= 1,
+  );
+  for (const sector of shrinkingDormantSectors.slice(0, 3)) {
+    findings.push({
+      severity: "info",
+      code: "dormant_sector_cooling",
+      message: `Dormant sector ${sector.sectorKey} is cooling toward ${sector.pooledCount} pooled actors.`,
+    });
+  }
 }
 
 function validateEntityContract(

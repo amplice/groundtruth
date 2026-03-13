@@ -677,8 +677,12 @@ export class SceneRuntime {
           ? 0x3b82f6
           : tracked?.status === "active"
             ? 0xff9959
-            : tracked?.status === "dormant"
-              ? 0xd69133
+            : tracked?.status === "dormant" && tracked.trend === "growing"
+              ? 0xf0ad4e
+              : tracked?.status === "dormant" && tracked.trend === "shrinking"
+                ? 0x7db2a8
+                : tracked?.status === "dormant"
+                  ? 0xd69133
               : tracked?.status === "recent"
                 ? 0x72c26f
                 : 0x7e8a94;
@@ -688,8 +692,12 @@ export class SceneRuntime {
           ? 0.5
           : tracked?.status === "active"
             ? 0.82
-            : tracked?.status === "dormant"
-              ? 0.64
+            : tracked?.status === "dormant" && tracked.trend === "growing"
+              ? 0.74
+              : tracked?.status === "dormant" && tracked.trend === "shrinking"
+                ? 0.56
+                : tracked?.status === "dormant"
+                  ? 0.64
               : tracked?.status === "recent"
                 ? 0.44
                 : 0.22;

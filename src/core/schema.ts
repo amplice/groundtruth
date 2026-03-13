@@ -248,6 +248,8 @@ export interface SectorPoolSnapshot {
 
 export type SectorLifecycleState = "active" | "dormant" | "recent" | "depleted";
 
+export type SectorPopulationTrend = "growing" | "stable" | "shrinking";
+
 export interface SectorStateSnapshot {
   sectorKey: string;
   status: SectorLifecycleState;
@@ -255,6 +257,8 @@ export interface SectorStateSnapshot {
   dormantCount: number;
   liveCount: number;
   recentSeconds: number;
+  offlineSeconds: number;
+  trend: SectorPopulationTrend;
 }
 
 export interface WorldSimulationState {
