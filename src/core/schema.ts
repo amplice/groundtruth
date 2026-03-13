@@ -259,6 +259,8 @@ export interface SectorStateSnapshot {
   recentSeconds: number;
   offlineSeconds: number;
   trend: SectorPopulationTrend;
+  pressure: number;
+  depletion: number;
 }
 
 export interface WorldSimulationState {

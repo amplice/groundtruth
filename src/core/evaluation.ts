@@ -193,6 +193,28 @@ function evaluateSimulationSectors(
       message: `Dormant sector ${sector.sectorKey} is cooling toward ${sector.pooledCount} pooled actors.`,
     });
   }
+
+  const highPressureSectors = world.simulation.sectorStates.filter(
+    (sector) => sector.pressure >= 0.8 && sector.status !== "depleted",
+  );
+  for (const sector of highPressureSectors.slice(0, 4)) {
+    findings.push({
+      severity: "info",
+      code: "sector_pressure_memory",
+      message: `Sector ${sector.sectorKey} retains high pressure (${sector.pressure.toFixed(2)}), so it will repopulate more aggressively.`,
+    });
+  }
+
+  const depletedDormantSectors = world.simulation.sectorStates.filter(
+    (sector) => sector.depletion >= 0.8 && sector.status === "dormant",
+  );
+  for (const sector of depletedDormantSectors.slice(0, 4)) {
+    findings.push({
+      severity: "info",
+      code: "sector_depletion_memory",
+      message: `Sector ${sector.sectorKey} is depleted (${sector.depletion.toFixed(2)}), so off-screen recovery is being suppressed.`,
+    });
+  }
 }
 
 function validateEntityContract(

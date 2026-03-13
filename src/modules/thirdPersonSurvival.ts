@@ -80,7 +80,7 @@ export class ThirdPersonSurvivalModule implements RuntimeModule {
       ];
       this.debugFindings = [
         `Sector population rebalance at ${populationStats.centerSector}.`,
-        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}, pooled ${populationStats.pooledCount}.`,
+        `Activated ${populationStats.lastActivated}, parked ${populationStats.lastParked}, pooled ${populationStats.pooledCount}, tracked ${populationStats.trackedSectorCount}.`,
       ];
       return;
     }

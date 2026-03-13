@@ -42,6 +42,8 @@ interface SectorDebugRecord {
   dormant: number;
   recentSeconds: number;
   offlineSeconds: number;
+  pressure: number;
+  depletion: number;
 }
 
 export class SectorPopulationManager {
@@ -60,6 +62,10 @@ export class SectorPopulationManager {
   private static readonly OFFLINE_TARGET_WITH_HOME_ZONE = 10;
 
   private static readonly OFFLINE_TARGET_WITHOUT_HOME_ZONE = 4;
+
+  private static readonly PRESSURE_DECAY_PER_SECOND = 0.04;
+
+  private static readonly DEPLETION_DECAY_PER_SECOND = 0.025;
 
   private readonly dormantEntities = new Map<string, EntitySpec>();
 
@@ -251,7 +257,7 @@ export class SectorPopulationManager {
 
     for (const record of sectorRecords) {
       lines.push(
-        `Sector ${record.sectorKey} [${record.status}/${record.trend}]: live ${record.live}, pooled ${record.pooled}, dormant ${record.dormant}, offline ${record.offlineSeconds.toFixed(1)}s`,
+        `Sector ${record.sectorKey} [${record.status}/${record.trend}]: live ${record.live}, pooled ${record.pooled}, dormant ${record.dormant}, offline ${record.offlineSeconds.toFixed(1)}s, pressure ${record.pressure.toFixed(2)}, depletion ${record.depletion.toFixed(2)}`,
       );
     }
     return lines;
@@ -338,6 +344,8 @@ export class SectorPopulationManager {
         ...sectorState,
         offlineSeconds: sectorState.offlineSeconds ?? 0,
         trend: sectorState.trend ?? "stable",
+        pressure: sectorState.pressure ?? 0,
+        depletion: sectorState.depletion ?? 0,
       });
     }
     this.stats.pooledCount = this.getPooledCount();
@@ -527,6 +535,8 @@ export class SectorPopulationManager {
         ...state,
         offlineSeconds: state.offlineSeconds + dtSeconds,
         trend: state.trend ?? "stable",
+        pressure: state.pressure ?? 0,
+        depletion: state.depletion ?? 0,
       };
       let sectorChanged = false;
       while (nextState.offlineSeconds >= SectorPopulationManager.OFFLINE_SIMULATION_INTERVAL_SECONDS) {
@@ -555,19 +565,20 @@ export class SectorPopulationManager {
   }
 
   private simulateFarSectorStep(sectorKey: string): number {
+    const state = this.sectorStates.get(sectorKey);
     const pools = [...this.sectorPools.entries()].filter(([, pool]) => pool.sectorKey === sectorKey);
     if (pools.length === 0) {
       return 0;
     }
 
     pools.sort((left, right) => {
-      const leftTarget = this.getOfflinePoolTarget(left[1]);
-      const rightTarget = this.getOfflinePoolTarget(right[1]);
+      const leftTarget = this.getOfflinePoolTarget(left[1], state);
+      const rightTarget = this.getOfflinePoolTarget(right[1], state);
       return (leftTarget - left[1].count) - (rightTarget - right[1].count);
     });
 
     for (const [poolKey, pool] of pools) {
-      const target = this.getOfflinePoolTarget(pool);
+      const target = this.getOfflinePoolTarget(pool, state);
       if (pool.count < target) {
         pool.count += 1;
         this.sectorPools.set(poolKey, pool);
@@ -587,10 +598,16 @@ export class SectorPopulationManager {
     return 0;
   }
 
-  private getOfflinePoolTarget(pool: SectorSpawnPool): number {
-    return pool.homeZoneId
+  private getOfflinePoolTarget(
+    pool: SectorSpawnPool,
+    state: SectorStateSnapshot | undefined,
+  ): number {
+    const baseTarget = pool.homeZoneId
       ? SectorPopulationManager.OFFLINE_TARGET_WITH_HOME_ZONE
       : SectorPopulationManager.OFFLINE_TARGET_WITHOUT_HOME_ZONE;
+    const pressureBias = Math.round((state?.pressure ?? 0) * 6);
+    const depletionBias = Math.round((state?.depletion ?? 0) * 5);
+    return clampNumber(baseTarget + pressureBias - depletionBias, 0, baseTarget + 8);
   }
 
   private decaySectorStates(dtSeconds: number): boolean {
@@ -612,6 +629,8 @@ export class SectorPopulationManager {
         ...state,
         recentSeconds: nextRecentSeconds,
         status: nextStatus,
+        pressure: Math.max(0, state.pressure - (SectorPopulationManager.PRESSURE_DECAY_PER_SECOND * dtSeconds)),
+        depletion: Math.max(0, state.depletion - (SectorPopulationManager.DEPLETION_DECAY_PER_SECOND * dtSeconds)),
       };
       if (!sameSectorState(state, nextState)) {
         changed = true;
@@ -660,10 +679,20 @@ export class SectorPopulationManager {
       let recentSeconds = existing?.recentSeconds ?? 0;
       let offlineSeconds = existing?.offlineSeconds ?? 0;
       let trend = existing?.trend ?? "stable";
+      let pressure = existing?.pressure ?? 0;
+      let depletion = existing?.depletion ?? 0;
       if (residentKeys.has(sectorKey) || liveCount > 0) {
         recentSeconds = SectorPopulationManager.RECENT_STATE_SECONDS;
         offlineSeconds = 0;
         trend = "stable";
+        pressure = clampNumber(
+          pressure + Math.min(0.28, liveCount * 0.04),
+          0,
+          1.5,
+        );
+        depletion = Math.max(0, depletion - 0.08);
+      } else if (pooledCount + dormantCount <= 1 && existing) {
+        depletion = clampNumber(depletion + 0.12, 0, 1.5);
       }
 
       const status: SectorLifecycleState =
@@ -694,6 +723,8 @@ export class SectorPopulationManager {
         recentSeconds,
         offlineSeconds,
         trend,
+        pressure,
+        depletion,
       };
       desiredKeys.add(sectorKey);
 
@@ -751,6 +782,8 @@ export class SectorPopulationManager {
         dormant: state.dormantCount,
         recentSeconds: state.recentSeconds,
         offlineSeconds: state.offlineSeconds,
+        pressure: state.pressure,
+        depletion: state.depletion,
       });
     }
     for (const entity of this.dormantEntities.values()) {
@@ -764,6 +797,8 @@ export class SectorPopulationManager {
         dormant: 0,
         recentSeconds: 0,
         offlineSeconds: 0,
+        pressure: 0,
+        depletion: 0,
       };
       record.dormant += 1;
       if (record.status === "depleted") {
@@ -781,6 +816,8 @@ export class SectorPopulationManager {
         dormant: 0,
         recentSeconds: 0,
         offlineSeconds: 0,
+        pressure: 0,
+        depletion: 0,
       };
       record.pooled += pool.count;
       if (record.status === "depleted") {
@@ -817,6 +854,12 @@ function sameSectorState(left: SectorStateSnapshot, right: SectorStateSnapshot):
     left.dormantCount === right.dormantCount &&
     left.liveCount === right.liveCount &&
     Math.abs(left.recentSeconds - right.recentSeconds) < 0.01 &&
-    Math.abs(left.offlineSeconds - right.offlineSeconds) < 0.01
+    Math.abs(left.offlineSeconds - right.offlineSeconds) < 0.01 &&
+    Math.abs(left.pressure - right.pressure) < 0.01 &&
+    Math.abs(left.depletion - right.depletion) < 0.01
   );
+}
+
+function clampNumber(value: number, minimum: number, maximum: number): number {
+  return Math.max(minimum, Math.min(maximum, value));
 }
