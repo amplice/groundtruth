@@ -10,12 +10,14 @@ import {
 } from "../core/schema";
 import {
   ActionModulePreset,
+  FIRST_PERSON_ACTION_PRESET,
   PLATFORMER_ACTION_PRESET,
   THIRD_PERSON_ACTION_PRESET,
 } from "./actionModulePresets";
 import { createRuntimeFeatures } from "./runtimeFeatureRegistry";
 import {
   ModuleContext,
+  HostileActivityTier,
   RuntimeFeature,
   RuntimeFeatureEvent,
   RuntimeFeatureId,
@@ -33,8 +35,6 @@ interface MotionSample {
   position: Vec3;
   stalledSeconds: number;
 }
-
-type HostileActivityTier = "active" | "throttled" | "sleeping";
 
 export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   readonly id: RuntimeModule["id"];
@@ -72,6 +72,29 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   constructor(protected readonly preset: ActionModulePreset) {
     this.id = preset.id;
     this.features = createRuntimeFeatures(preset.featureIds ?? []);
+  }
+
+  onWorldRebuilt(world: ReturnType<ModuleContext["store"]["peekWorld"]>, context: ModuleContext): void {
+    void world;
+    this.cooldowns.clear();
+    this.animationLocks.clear();
+    this.motionSamples.clear();
+    this.hostileUpdateAccumulatedDt.clear();
+    this.hostileActivityTiers.clear();
+    this.verticalVelocity.clear();
+    this.groundedState.clear();
+    this.recentEvents = [];
+    this.statusLines = [this.getControlLine()];
+    this.debugFindings = ["World rebuilt. Runtime state reset."];
+    this.hostileActivityCounts = {
+      active: 0,
+      throttled: 0,
+      sleeping: 0,
+    };
+    context.scene.setPlayerDangerLevel(0);
+    for (const feature of this.features) {
+      feature.onWorldRebuilt?.(context.store.peekWorld(), context, this);
+    }
   }
 
   update(dtSeconds: number, context: ModuleContext): void {
@@ -229,6 +252,9 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     cameraRig: ResolvedEntity["components"]["cameraRig"],
   ): void {
     switch (this.preset.playerMovementMode) {
+      case "first_person":
+        this.updateFirstPersonPlayerMovement(dtSeconds, context, playerId, moveSpeed, sprintSpeed);
+        return;
       case "top_down":
         this.updateTopDownPlayerMovement(dtSeconds, context, playerId, moveSpeed, sprintSpeed);
         return;
@@ -285,6 +311,65 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     context.scene.updateFollowCamera(playerId, activeCameraRig);
   }
 
+  protected updateFirstPersonPlayerMovement(
+    dtSeconds: number,
+    context: ModuleContext,
+    playerId: string,
+    moveSpeed: number,
+    sprintSpeed: number | undefined,
+  ): void {
+    const axes = context.input.movementAxes();
+    const length = Math.hypot(axes.x, axes.z);
+    const resolvedPlayer = this.resolveEntityById(context, playerId);
+    const currentLock = this.animationLocks.get(playerId);
+    const lockedAction = currentLock
+      ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
+      : null;
+    const cameraRig = this.resolveCameraRig(resolvedPlayer.components.cameraRig);
+
+    if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
+      this.syncAnimationState(context, playerId, "idle");
+      context.scene.updateFollowCamera(playerId, cameraRig);
+      return;
+    }
+
+    const speed = axes.sprint
+      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.45)
+      : moveSpeed;
+    const basis = context.scene.getMovementBasis();
+    const dirX = (basis.right.x * axes.x + basis.forward.x * axes.z) / length;
+    const dirZ = (basis.right.z * axes.x + basis.forward.z * axes.z) / length;
+    const movement = context.physics.moveCharacter(playerId, {
+      x: dirX * speed * dtSeconds,
+      y: 0,
+      z: dirZ * speed * dtSeconds,
+    });
+    if (!movement) {
+      context.scene.updateFollowCamera(playerId, cameraRig);
+      return;
+    }
+
+    const facingYaw = Math.atan2(basis.forward.x, basis.forward.z);
+    this.syncAnimationState(context, playerId, axes.sprint ? "run" : "walk");
+    context.store.updateEntityTransform(playerId, {
+      position: movement.position,
+      rotation: {
+        x: 0,
+        y: facingYaw,
+        z: 0,
+      },
+    });
+    context.scene.updateEntityTransform(playerId, {
+      position: movement.position,
+      rotation: {
+        x: 0,
+        y: facingYaw,
+        z: 0,
+      },
+    });
+    context.scene.updateFollowCamera(playerId, cameraRig);
+  }
+
   protected tryPlayerAttack(context: ModuleContext, playerId: string): void {
     for (const feature of this.features) {
       if (feature.onPlayerAttack?.(context, this, playerId)) {
@@ -306,6 +391,12 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     context: ModuleContext,
     playerId: string,
   ): void {
+    for (const feature of this.features) {
+      if (feature.onUpdateHostiles?.(dtSeconds, context, this, playerId)) {
+        return;
+      }
+    }
+
     if (this.preset.hostileBehavior === "lane_2d") {
       this.updateLaneHostiles(dtSeconds, context, playerId);
       return;
@@ -889,7 +980,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     this.debugFindings = findings;
   }
 
-  protected syncAnimationState(
+  syncAnimationState(
     context: ModuleContext,
     entityId: string,
     state: string,
@@ -961,7 +1052,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     }
   }
 
-  protected recordHostileMotion(
+  recordHostileMotion(
     entityId: string,
     position: Vec3,
     chasing: boolean,
@@ -997,7 +1088,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return !this.cooldowns.has(entityId);
   }
 
-  protected consumeHostileUpdateDt(
+  consumeHostileUpdateDt(
     entityId: string,
     dtSeconds: number,
     intervalSeconds: number,
@@ -1086,6 +1177,14 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return (entity.components.health?.current ?? 1) <= 0;
   }
 
+  isHostileEntity(entity: ResolvedEntity): boolean {
+    return this.isHostile(entity);
+  }
+
+  isDeadEntity(entity: ResolvedEntity): boolean {
+    return this.isDead(entity);
+  }
+
   readHealth(entity: ResolvedEntity): string {
     const health = entity.components.health;
     if (!health) {
@@ -1119,6 +1218,35 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return entityRig ?? this.preset.cameraRig;
   }
 
+  getHostileBehavior(): "arena_3d" | "lane_2d" | "survival_zombie" {
+    return this.preset.hostileBehavior;
+  }
+
+  getCurrentLockedAction(
+    context: ModuleContext,
+    entityId: string,
+  ): ActionDefinition | null {
+    const currentLock = this.animationLocks.get(entityId);
+    if (!currentLock) {
+      return null;
+    }
+    const resolved = this.resolveEntityById(context, entityId);
+    return this.resolveActionDefinition(resolved, currentLock.state);
+  }
+
+  resetHostileActivity(): void {
+    this.hostileActivityCounts = {
+      active: 0,
+      throttled: 0,
+      sleeping: 0,
+    };
+  }
+
+  noteHostileActivity(entityId: string, tier: HostileActivityTier): void {
+    this.hostileActivityTiers.set(entityId, tier);
+    this.hostileActivityCounts[tier] += 1;
+  }
+
   getControlLine(): string {
     return this.preset.controlLine;
   }
@@ -1135,6 +1263,12 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
 export class ThirdPersonActionModule extends PresetActionModule {
   constructor() {
     super(THIRD_PERSON_ACTION_PRESET);
+  }
+}
+
+export class FirstPersonActionModule extends PresetActionModule {
+  constructor() {
+    super(FIRST_PERSON_ACTION_PRESET);
   }
 }
 

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "docs:check": "node ./scripts/check-docs-commit.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.19.3",

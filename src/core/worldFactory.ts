@@ -628,6 +628,173 @@ export function makeFlatOutpostWorld(
   };
 }
 
+export function makeTownGridWorld(
+  options: Partial<FlatWorldOptions> = {},
+): WorldDocument {
+  const config = { ...defaultFlatWorldOptions, ...options };
+  const random = createMulberry32(config.seed * 17 + 5);
+  const worldSize = config.worldHalfExtent * 2;
+  const roadSpan = Math.max(26, Math.min(config.worldHalfExtent * 0.72, 56));
+  const roadOffsets = [-roadSpan, 0, roadSpan];
+  const buildings: EntitySpec[] = [];
+  const crates: EntitySpec[] = [];
+  const zombies: EntitySpec[] = [];
+  const zones: ZoneSpec[] = [
+    {
+      id: "safe.plaza",
+      name: "Central Plaza",
+      kind: "safe",
+      shape: {
+        type: "sphere",
+        radius: 14,
+      },
+      transform: {
+        position: makeVec3(0, 1, 0),
+      },
+      tags: ["starter", "safe"],
+    },
+  ];
+
+  const roadEntities = roadOffsets.flatMap((offset, index) => ([
+    {
+      id: `town.road.ns.${index + 1}`,
+      name: `Town North South Road ${index + 1}`,
+      prefabId: "road_strip",
+      transform: {
+        position: makeVec3(offset, 0.1, 0),
+        scale: makeVec3(1, 1, worldSize / 4),
+      },
+    },
+    {
+      id: `town.road.ew.${index + 1}`,
+      name: `Town East West Road ${index + 1}`,
+      prefabId: "road_strip",
+      transform: {
+        position: makeVec3(0, 0.1, offset),
+        rotation: makeVec3(0, Math.PI * 0.5, 0),
+        scale: makeVec3(1, 1, worldSize / 4),
+      },
+    },
+  ]));
+
+  const blockCenters: Array<{ x: number; z: number }> = [];
+  for (let gridX = -1; gridX <= 1; gridX += 1) {
+    for (let gridZ = -1; gridZ <= 1; gridZ += 1) {
+      if (gridX === 0 && gridZ === 0) {
+        continue;
+      }
+      blockCenters.push({
+        x: gridX * roadSpan * 0.62,
+        z: gridZ * roadSpan * 0.62,
+      });
+    }
+  }
+
+  blockCenters.slice(0, Math.max(config.buildingCount, 1)).forEach((center, index) => {
+    const isWarehouse = random() > 0.58;
+    buildings.push({
+      id: `town.building.${index + 1}`,
+      name: isWarehouse ? `Town Warehouse ${index + 1}` : `Town Shack ${index + 1}`,
+      prefabId: isWarehouse ? "warehouse_building" : "shack_building",
+      transform: {
+        position: makeVec3(
+          center.x + ((random() - 0.5) * 7),
+          isWarehouse ? 2.5 : 1.6,
+          center.z + ((random() - 0.5) * 7),
+        ),
+        rotation: makeVec3(0, pickQuarterTurn(random), 0),
+        scale: isWarehouse
+          ? makeVec3(0.95 + random() * 0.35, 1, 0.95 + random() * 0.35)
+          : makeVec3(0.85 + random() * 0.25, 1, 0.85 + random() * 0.25),
+      },
+    });
+    if (crates.length < config.crateCount) {
+      crates.push({
+        id: `town.crate.${crates.length + 1}`,
+        name: `Town Loot Crate ${crates.length + 1}`,
+        prefabId: "loot_crate",
+        transform: {
+          position: makeVec3(center.x + 3, 0.5, center.z - 2),
+        },
+      });
+    }
+  });
+
+  while (crates.length < config.crateCount) {
+    const position = sampleRingPosition(random, 12, config.worldHalfExtent - 8);
+    crates.push({
+      id: `town.crate.${crates.length + 1}`,
+      name: `Town Loot Crate ${crates.length + 1}`,
+      prefabId: "loot_crate",
+      transform: {
+        position: makeVec3(position.x, 0.5, position.z),
+      },
+    });
+  }
+
+  for (let index = 0; index < config.zombieCount; index += 1) {
+    const lane = roadOffsets[index % roadOffsets.length];
+    const along = -config.worldHalfExtent * 0.8 + (((index + 1) / (config.zombieCount + 1)) * worldSize * 0.8);
+    const axis = index % 2 === 0;
+    const x = axis ? lane + ((random() - 0.5) * 3) : along;
+    const z = axis ? along : lane + ((random() - 0.5) * 3);
+    const homeZoneId = `town.spawn.${(index % 4) + 1}`;
+    zombies.push(makeZombieEntity(`town.zombie.${index + 1}`, makeVec3(x, 1.1, z), homeZoneId));
+  }
+
+  zones.push(
+    makeSpawnZone("town.spawn.1", "North Street Encounter", makeVec3(0, 1, -roadSpan), makeVec3(24, 2, 12)),
+    makeSpawnZone("town.spawn.2", "East Street Encounter", makeVec3(roadSpan, 1, 0), makeVec3(12, 2, 24)),
+    makeSpawnZone("town.spawn.3", "South Street Encounter", makeVec3(0, 1, roadSpan), makeVec3(24, 2, 12)),
+    makeSpawnZone("town.spawn.4", "West Street Encounter", makeVec3(-roadSpan, 1, 0), makeVec3(12, 2, 24)),
+    {
+      id: "town.objective.plaza",
+      name: "Plaza Objective",
+      kind: "objective",
+      shape: {
+        type: "sphere",
+        radius: 10,
+      },
+      transform: {
+        position: makeVec3(0, 1, 0),
+      },
+      tags: ["objective", "plaza"],
+    },
+  );
+
+  return {
+    metadata: {
+      id: `groundtruth.world.town_grid.${config.seed}`,
+      name: `Town Grid Seed ${config.seed}`,
+      description: "Procedurally assembled town-like grid with roads, blocks, loot pockets, and zombie patrol lanes.",
+    },
+    gameMode: "open_world",
+    settings: {
+      gravity: makeVec3(0, -9.81, 0),
+      ambientLight: "#8fa7b8",
+      skyColor: "#d8e3ea",
+      fogColor: "#d9e0e4",
+      fogDensity: 0.008,
+      gridSize: Math.max(220, worldSize + 32),
+      sectorSize: 24,
+    },
+    prefabs: createDefaultPrefabs(),
+    entities: [
+      makeGroundEntity(worldSize),
+      makePlayerEntity(makeVec3(0, 1.2, -10)),
+      ...roadEntities,
+      ...buildings,
+      ...crates,
+      ...zombies,
+    ],
+    zones,
+    simulation: {
+      sectorPools: [],
+      sectorStates: [],
+    },
+  };
+}
+
 function makeGroundEntity(size: number): EntitySpec {
   return {
     id: "ground",

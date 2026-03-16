@@ -141,6 +141,8 @@ export class SceneRuntime {
 
   private readonly modelCache = new Map<string, Promise<LoadedModelAsset>>();
 
+  private readonly loadedModelAssets = new Map<string, LoadedModelAsset>();
+
   private readonly animationBindings = new Map<string, AnimationBinding>();
 
   private readonly desiredAnimations = new Map<string, AnimationComponent | undefined>();
@@ -182,6 +184,8 @@ export class SceneRuntime {
   private currentSectorOverlay: RuntimeSectorOverlay | null = null;
 
   private currentSectorOverlaySignature = "";
+
+  private currentFirstPersonTargetId: string | null = null;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -259,6 +263,7 @@ export class SceneRuntime {
     this.clearWorldLabels();
     this.playerDangerLevel = 0;
     this.dangerOverlay.style.opacity = "0";
+    this.currentFirstPersonTargetId = null;
 
     for (const item of world.entities) {
       const entity = resolveEntity(world, item);
@@ -349,7 +354,7 @@ export class SceneRuntime {
   }
 
   updateFollowCamera(targetId: string, rig?: CameraRigComponent): void {
-    if (!rig || (rig.mode !== "follow" && rig.mode !== "top_down" && rig.mode !== "isometric")) {
+    if (!rig || (rig.mode !== "follow" && rig.mode !== "top_down" && rig.mode !== "isometric" && rig.mode !== "first_person")) {
       return;
     }
     const object = this.entityMap.get(targetId);
@@ -358,6 +363,21 @@ export class SceneRuntime {
     }
     const target = object.position.clone();
     let offset: THREE.Vector3;
+    if (rig.mode === "first_person") {
+      this.setFirstPersonTarget(targetId);
+      const eyeHeight = 1.45;
+      const facingYaw = object.rotation.y + (rig.yaw ?? 0);
+      const lookDistance = 8;
+      const lookTarget = target.clone().add(new THREE.Vector3(
+        Math.sin(facingYaw) * lookDistance,
+        eyeHeight + (rig.pitch ?? 0),
+        Math.cos(facingYaw) * lookDistance,
+      ));
+      this.camera.position.lerp(target.clone().add(new THREE.Vector3(0, eyeHeight, 0)), 0.18);
+      this.controls.target.lerp(lookTarget, 0.24);
+      return;
+    }
+    this.setFirstPersonTarget(null);
     if (rig.mode === "top_down") {
       const distance = rig.distance ?? 20;
       offset = new THREE.Vector3(0.001, distance, 0.001);
@@ -666,6 +686,13 @@ export class SceneRuntime {
     render: ModelRenderComponent,
   ): THREE.Object3D {
     const holder = new THREE.Group();
+    const cacheKey = this.getModelCacheKey(render);
+    const cachedAsset = this.loadedModelAssets.get(cacheKey);
+    if (cachedAsset) {
+      this.attachLoadedModel(holder, entity, render, cachedAsset);
+      return holder;
+    }
+
     const placeholder = this.buildModelPlaceholder(render);
     holder.add(placeholder);
     this.assetReports.set(entity.id, {
@@ -680,37 +707,13 @@ export class SceneRuntime {
 
     this.loadModel(render)
       .then((asset) => {
+        this.loadedModelAssets.set(cacheKey, asset);
         if (!holder.parent) {
           return;
         }
 
-        const modelRoot = this.instantiateModel(asset.scene);
-        this.applyModelRenderTransform(modelRoot, render);
         holder.remove(placeholder);
-        holder.add(modelRoot);
-
-        if (asset.animations.length > 0) {
-          const mixer = new THREE.AnimationMixer(modelRoot);
-          const actions = new Map<string, THREE.AnimationAction>();
-          for (const clip of asset.animations) {
-            actions.set(clip.name, mixer.clipAction(clip));
-          }
-
-          const binding: AnimationBinding = {
-            mixer,
-            actions,
-            clipAliases: new Map(Object.entries(render.clips ?? {})),
-            activeClipName: null,
-            activeState: null,
-            effectiveSpeed: 1,
-            loopMode: "repeat",
-          };
-          this.animationBindings.set(entity.id, binding);
-          this.assetReports.set(entity.id, this.buildAssetReport(entity, render, binding));
-          this.applyAnimationState(binding, this.desiredAnimations.get(entity.id));
-        } else {
-          this.assetReports.set(entity.id, this.buildAssetReport(entity, render));
-        }
+        this.attachLoadedModel(holder, entity, render, asset);
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error);
@@ -729,6 +732,41 @@ export class SceneRuntime {
       });
 
     return holder;
+  }
+
+  private attachLoadedModel(
+    holder: THREE.Group,
+    entity: ReturnType<typeof resolveEntity>,
+    render: ModelRenderComponent,
+    asset: LoadedModelAsset,
+  ): void {
+    const modelRoot = this.instantiateModel(asset.scene);
+    this.applyModelRenderTransform(modelRoot, render);
+    holder.add(modelRoot);
+
+    if (asset.animations.length > 0) {
+      const mixer = new THREE.AnimationMixer(modelRoot);
+      const actions = new Map<string, THREE.AnimationAction>();
+      for (const clip of asset.animations) {
+        actions.set(clip.name, mixer.clipAction(clip));
+      }
+
+      const binding: AnimationBinding = {
+        mixer,
+        actions,
+        clipAliases: new Map(Object.entries(render.clips ?? {})),
+        activeClipName: null,
+        activeState: null,
+        effectiveSpeed: 1,
+        loopMode: "repeat",
+      };
+      this.animationBindings.set(entity.id, binding);
+      this.assetReports.set(entity.id, this.buildAssetReport(entity, render, binding));
+      this.applyAnimationState(binding, this.desiredAnimations.get(entity.id));
+      return;
+    }
+
+    this.assetReports.set(entity.id, this.buildAssetReport(entity, render));
   }
 
   private buildFallbackPlaceholder(entity: EntitySpec): THREE.Mesh {
@@ -964,7 +1002,7 @@ export class SceneRuntime {
       projected.project(this.camera);
       const x = ((projected.x + 1) * 0.5) * this.mount.clientWidth;
       const y = ((1 - projected.y) * 0.5) * this.mount.clientHeight;
-      const isVisible = projected.z > -1 && projected.z < 1 && shouldShowHealthBar(entityId, bar, this.selectedEntityId);
+      const isVisible = object.visible && projected.z > -1 && projected.z < 1 && shouldShowHealthBar(entityId, bar, this.selectedEntityId);
       bar.element.style.display = isVisible ? "flex" : "none";
       if (!isVisible) {
         continue;
@@ -1072,6 +1110,10 @@ export class SceneRuntime {
           this.worldLabels.delete(key);
           continue;
         }
+        if (!object.visible) {
+          label.element.style.display = "none";
+          continue;
+        }
         worldPosition = object.getWorldPosition(new THREE.Vector3());
         worldPosition.y += label.offsetY;
       }
@@ -1101,6 +1143,25 @@ export class SceneRuntime {
       label.element.remove();
     }
     this.worldLabels.clear();
+  }
+
+  private setFirstPersonTarget(entityId: string | null): void {
+    if (this.currentFirstPersonTargetId === entityId) {
+      return;
+    }
+    if (this.currentFirstPersonTargetId) {
+      const previous = this.entityMap.get(this.currentFirstPersonTargetId);
+      if (previous) {
+        previous.visible = true;
+      }
+    }
+    this.currentFirstPersonTargetId = entityId;
+    if (entityId) {
+      const current = this.entityMap.get(entityId);
+      if (current) {
+        current.visible = false;
+      }
+    }
   }
 
   private applyVisualState(
@@ -1244,11 +1305,11 @@ export class SceneRuntime {
             uri: renderOrUri,
           } as ModelRenderComponent)
         : renderOrUri;
-    const cacheKey = JSON.stringify({
-      uri: render.uri,
-      format: render.format ?? inferModelFormat(render.uri),
-      animationSources: render.animationSources ?? {},
-    });
+    const cacheKey = this.getModelCacheKey(render);
+    const loaded = this.loadedModelAssets.get(cacheKey);
+    if (loaded) {
+      return Promise.resolve(loaded);
+    }
     const cached = this.modelCache.get(cacheKey);
     if (cached) {
       return cached;
@@ -1290,6 +1351,14 @@ export class SceneRuntime {
 
     this.modelCache.set(cacheKey, promise);
     return promise;
+  }
+
+  private getModelCacheKey(render: ModelRenderComponent): string {
+    return JSON.stringify({
+      uri: render.uri,
+      format: render.format ?? inferModelFormat(render.uri),
+      animationSources: render.animationSources ?? {},
+    });
   }
 
   private instantiateModel(scene: THREE.Object3D): THREE.Object3D {

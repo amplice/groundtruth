@@ -1,5 +1,6 @@
 import { CombatFeature } from "./combatFeature";
 import { CombatFeedbackFeature } from "./combatFeedbackFeature";
+import { HostileAIFeature } from "./hostileAIFeature";
 import { InteractionInventoryFeature } from "./interactionInventoryFeature";
 import { RuntimeFeature, RuntimeFeatureId } from "./types";
 import { SectorPopulationFeature } from "./sectorPopulationFeature";
@@ -7,6 +8,8 @@ import { SectorPopulationFeature } from "./sectorPopulationFeature";
 export function createRuntimeFeatures(featureIds: RuntimeFeatureId[] = []): RuntimeFeature[] {
   return featureIds.map((featureId) => {
     switch (featureId) {
+      case "hostile_ai":
+        return new HostileAIFeature();
       case "combat":
         return new CombatFeature();
       case "combat_feedback":

@@ -1,4 +1,5 @@
 import { GameMode } from "../core/schema";
+import { FirstPersonModule } from "./firstPersonAction";
 import { PlatformerModule } from "./platformerModule";
 import { SandboxModule } from "./sandboxModule";
 import { TopDownActionModule } from "./topDownAction";
@@ -30,7 +31,7 @@ const runtimeModuleDescriptors: RuntimeModuleDescriptor[] = [
     id: "first_person",
     label: "First-Person",
     description: "First-person camera, weapons, and interaction presets.",
-    implemented: false,
+    implemented: true,
   },
   {
     id: "top_down",
@@ -126,6 +127,8 @@ export function createRuntimeModule(gameMode: GameMode): RuntimeModule {
   switch (gameMode) {
     case "third_person_survival":
       return new ThirdPersonSurvivalModule();
+    case "first_person":
+      return new FirstPersonModule();
     case "third_person":
       return new ThirdPersonActionModule();
     case "top_down":

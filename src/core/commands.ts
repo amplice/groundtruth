@@ -1,6 +1,7 @@
 import {
   FlatWorldOptions,
   makeFlatOutpostWorld,
+  makeTownGridWorld,
 } from "./sampleWorld";
 import {
   EntitySpec,
@@ -16,6 +17,7 @@ export type WorldCommand =
   | { op: "reset_world" }
   | { op: "load_world"; world: WorldDocument }
   | { op: "generate_flat_world"; options?: Partial<FlatWorldOptions> }
+  | { op: "generate_town_world"; options?: Partial<FlatWorldOptions> }
   | { op: "set_game_mode"; gameMode: GameMode }
   | { op: "upsert_prefab"; prefab: PrefabSpec }
   | { op: "spawn_entity"; entity: EntitySpec }
@@ -47,6 +49,9 @@ export function applyCommands(
         break;
       case "generate_flat_world":
         world = makeFlatOutpostWorld(command.options);
+        break;
+      case "generate_town_world":
+        world = makeTownGridWorld(command.options);
         break;
       case "set_game_mode":
         world.gameMode = command.gameMode;

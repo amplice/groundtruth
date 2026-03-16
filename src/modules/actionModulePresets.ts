@@ -1,12 +1,12 @@
 import { CameraRigComponent, GameMode } from "../core/schema";
 import { RuntimeFeatureId } from "./types";
 
-export type ActionPlayerMovementMode = "third_person" | "top_down" | "platformer";
+export type ActionPlayerMovementMode = "first_person" | "third_person" | "top_down" | "platformer";
 
-export type ActionHostileBehavior = "arena_3d" | "lane_2d";
+export type ActionHostileBehavior = "arena_3d" | "lane_2d" | "survival_zombie";
 
 export interface ActionModulePreset {
-  id: Extract<GameMode, "third_person" | "third_person_survival" | "top_down" | "platformer">;
+  id: Extract<GameMode, "first_person" | "third_person" | "third_person_survival" | "top_down" | "platformer">;
   controlLine: string;
   idlePrompt: string;
   attackKey: string;
@@ -33,8 +33,26 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
-  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.5,
+};
+
+export const FIRST_PERSON_ACTION_PRESET: ActionModulePreset = {
+  id: "first_person",
+  controlLine: "WASD move | Shift sprint | Space attack | E interact",
+  idlePrompt: "Use generated worlds as a first-person action sandbox.",
+  attackKey: "Space",
+  cameraRig: {
+    mode: "first_person",
+    distance: 0,
+    pitch: 0.08,
+    yaw: 0,
+  },
+  playerMovementMode: "first_person",
+  hostileBehavior: "arena_3d",
+  worldLayout: "third_person",
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
+  sprintMultiplier: 1.45,
 };
 
 export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
@@ -49,9 +67,9 @@ export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
     yaw: 0.75,
   },
   playerMovementMode: "third_person",
-  hostileBehavior: "arena_3d",
+  hostileBehavior: "survival_zombie",
   worldLayout: "third_person",
-  featureIds: ["combat", "combat_feedback", "interaction_inventory", "sector_population"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "sector_population"],
   sprintMultiplier: 1.5,
 };
 
@@ -69,7 +87,7 @@ export const TOP_DOWN_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "top_down",
   hostileBehavior: "arena_3d",
   worldLayout: "top_down",
-  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.4,
 };
 
@@ -88,11 +106,12 @@ export const PLATFORMER_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "platformer",
   hostileBehavior: "lane_2d",
   worldLayout: "platformer",
-  featureIds: ["combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
   sprintMultiplier: 1.3,
 };
 
 const actionModulePresetMap: Record<ActionModulePreset["id"], ActionModulePreset> = {
+  first_person: FIRST_PERSON_ACTION_PRESET,
   third_person: THIRD_PERSON_ACTION_PRESET,
   third_person_survival: THIRD_PERSON_SURVIVAL_PRESET,
   top_down: TOP_DOWN_ACTION_PRESET,

@@ -1,14 +1,18 @@
 import "./styles.css";
 
 import { parseCommandScript } from "./core/commands";
+import { getProjectTemplate, listProjectTemplates } from "./core/projectTemplates";
+import { HelpAudience, HelpSection, helpContentByAudience } from "./docs/helpContent";
 import { evaluateWorld } from "./core/evaluation";
 import { GameMode, ModelRenderComponent, WorldDocument, ZoneSpec, emptyWorld, makeVec3, resolveEntity } from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
   makeFlatOutpostWorld,
+  makeTownGridWorld,
   makeThirdPersonSurvivalWorld,
 } from "./core/sampleWorld";
+import { applyWorldStamp, listWorldStamps } from "./core/worldStamps";
 import { getActionModulePreset } from "./modules/actionModulePresets";
 import { WorldStore } from "./core/worldStore";
 import { createRuntimeModule, listRuntimeModules } from "./modules/registry";
@@ -30,28 +34,66 @@ async function bootstrap(): Promise<void> {
           <h1>Web Runtime</h1>
           <p>Browser-first semantic runtime for AI-native 3D games.</p>
         </div>
-        <div class="controls">
-          <label>
-            <span>Game Mode</span>
-            <select id="game-mode-template"></select>
-          </label>
-          <button id="load-empty" class="secondary">New Empty World</button>
-          <button id="load-generated">Generate Flat Outpost</button>
-          <button id="load-scale-test">Generate Scale Test</button>
-          <button id="load-sample">Load Survival Slice</button>
-          <button id="reset-world" class="secondary">Reset World</button>
-          <button id="stress-world" class="secondary">Stress Test Swaps</button>
-          <button id="apply-commands">Apply Commands</button>
-          <button id="export-world" class="secondary">Export Snapshot</button>
-          <button id="import-world" class="secondary">Import Snapshot</button>
-          <button id="capture-shot" class="secondary">Capture Screenshot</button>
-        </div>
-        <section class="section">
-          <div class="section-head">
-            <h2>Generation</h2>
-            <span>Flat-world seed</span>
+        <section class="overview-card">
+          <div class="section-head compact">
+            <h2>Overview</h2>
+            <span>Current workspace</span>
           </div>
-          <div class="generation-grid">
+          <div id="overview" class="overview-copy"></div>
+        </section>
+        <div class="panel-tabs" role="tablist" aria-label="Sidebar workspace">
+          <button class="tab-button active" type="button" data-pane-target="build" aria-pressed="true">Build</button>
+          <button class="tab-button" type="button" data-pane-target="inspect" aria-pressed="false">Inspect</button>
+          <button class="tab-button" type="button" data-pane-target="runtime" aria-pressed="false">Runtime</button>
+        </div>
+        <div class="panel-stack">
+        <details class="section tool-section" data-pane="build" open>
+          <summary class="section-head">
+            <h2>Project</h2>
+            <span>Template-driven start</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Project Name</span>
+                <input id="project-name" value="Groundtruth Project" />
+              </label>
+              <label class="wide">
+                <span>Template</span>
+                <select id="project-template"></select>
+              </label>
+            </div>
+            <div id="project-template-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="start-project">Start Project From Template</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build" open>
+          <summary class="section-head">
+            <h2>World</h2>
+            <span>Mode, generation, snapshots</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid single-span">
+              <label class="wide">
+                <span>Game Mode</span>
+                <select id="game-mode-template"></select>
+              </label>
+            </div>
+            <div class="controls quick-actions">
+              <button id="load-generated">Generate Flat Outpost</button>
+              <button id="load-town">Generate Town Grid</button>
+              <button id="load-scale-test">Generate Scale Test</button>
+              <button id="load-empty" class="secondary">New Empty World</button>
+              <button id="load-sample">Load Survival Slice</button>
+              <button id="reset-world" class="secondary">Reset World</button>
+              <button id="stress-world" class="secondary">Stress Test Swaps</button>
+              <button id="export-world" class="secondary">Export Snapshot</button>
+              <button id="import-world" class="secondary">Import Snapshot</button>
+              <button id="capture-shot" class="secondary">Capture Screenshot</button>
+            </div>
+            <div class="generation-grid">
             <label>
               <span>Seed</span>
               <input id="world-seed" type="number" value="${defaultFlatWorldOptions.seed}" />
@@ -73,13 +115,15 @@ async function bootstrap(): Promise<void> {
               <input id="crate-count" type="number" value="${defaultFlatWorldOptions.crateCount}" />
             </label>
           </div>
-        </section>
-        <section class="section">
-          <div class="section-head">
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="runtime" open>
+          <summary class="section-head">
             <h2>Debug View</h2>
             <span>Human overlays</span>
-          </div>
-          <div class="toggle-grid">
+          </summary>
+          <div class="section-body">
+            <div class="toggle-grid">
             <label class="toggle">
               <input id="toggle-zones" type="checkbox" checked />
               <span>Zone volumes</span>
@@ -101,13 +145,15 @@ async function bootstrap(): Promise<void> {
               <span>Sector overlay</span>
             </label>
           </div>
-        </section>
-        <section class="section">
-          <div class="section-head">
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build" open>
+          <summary class="section-head">
             <h2>Authoring</h2>
             <span>In-world editing</span>
-          </div>
-          <div class="generation-grid">
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
             <label>
               <span>Mode</span>
               <input id="authoring-mode" value="play" readonly />
@@ -157,86 +203,125 @@ async function bootstrap(): Promise<void> {
             <button id="apply-selected-transform" class="secondary">Apply To Selected</button>
             <button id="delete-selected" class="secondary">Delete Selected</button>
           </div>
-        </section>
-        <section class="section">
-          <div class="section-head">
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build" open>
+          <summary class="section-head">
+            <h2>Stamps</h2>
+            <span>Reusable world chunks</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Stamp</span>
+                <select id="world-stamp"></select>
+              </label>
+            </div>
+            <div id="world-stamp-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="apply-world-stamp" class="secondary">Apply Stamp To Current World</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build">
+          <summary class="section-head">
             <h2>Command Script</h2>
             <span>Semantic JSON</span>
+          </summary>
+          <div class="section-body">
+            <div class="controls compact-controls">
+              <button id="apply-commands">Apply Commands</button>
+            </div>
+            <textarea id="command-script" spellcheck="false"></textarea>
           </div>
-          <textarea id="command-script" spellcheck="false"></textarea>
-        </section>
-        <section class="section">
-          <div class="section-head">
-            <h2>Diagnostics</h2>
-            <span>Live state</span>
+        </details>
+        <details class="section tool-section" data-pane="inspect">
+          <summary class="section-head">
+            <h2>Inspector</h2>
+            <span>Selected entity or zone</span>
+          </summary>
+          <div class="section-body">
+            <pre id="inspector"></pre>
           </div>
-          <pre id="diagnostics"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
-            <h2>Evaluation</h2>
-            <span>World checks</span>
-          </div>
-          <pre id="evaluation"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
-            <h2>Session</h2>
-            <span>Controls/runtime</span>
-          </div>
-          <pre id="session"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
-            <h2>Sectors</h2>
-            <span>Population/debug</span>
-          </div>
-          <pre id="sector-status"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
+        </details>
+        <details class="section tool-section" data-pane="inspect" open>
+          <summary class="section-head">
             <h2>Scene</h2>
             <span>Entities and zones</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label>
+                <span>Search</span>
+                <input id="scene-search" placeholder="player, zombie, spawn..." />
+              </label>
+              <label>
+                <span>Filter</span>
+                <select id="scene-filter">
+                  <option value="all">all</option>
+                  <option value="entities">entities</option>
+                  <option value="zones">zones</option>
+                  <option value="actors">actors</option>
+                  <option value="buildings">buildings</option>
+                  <option value="loot">loot</option>
+                </select>
+              </label>
+            </div>
+            <div id="scene-inventory" class="scene-inventory"></div>
           </div>
-          <div class="generation-grid">
-            <label>
-              <span>Search</span>
-              <input id="scene-search" placeholder="player, zombie, spawn..." />
-            </label>
-            <label>
-              <span>Filter</span>
-              <select id="scene-filter">
-                <option value="all">all</option>
-                <option value="entities">entities</option>
-                <option value="zones">zones</option>
-                <option value="actors">actors</option>
-                <option value="buildings">buildings</option>
-                <option value="loot">loot</option>
-              </select>
-            </label>
+        </details>
+        <details class="section tool-section" data-pane="inspect" open>
+          <summary class="section-head">
+            <h2>Evaluation</h2>
+            <span>World checks</span>
+          </summary>
+          <div class="section-body">
+            <pre id="evaluation"></pre>
           </div>
-          <div id="scene-inventory" class="scene-inventory"></div>
-        </section>
-        <section class="section">
-          <div class="section-head">
-            <h2>Inspector</h2>
-            <span>Selected entity</span>
+        </details>
+        <details class="section tool-section" data-pane="inspect">
+          <summary class="section-head">
+            <h2>Diagnostics</h2>
+            <span>Live state</span>
+          </summary>
+          <div class="section-body">
+            <pre id="diagnostics"></pre>
           </div>
-          <pre id="inspector"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
+        </details>
+        <details class="section tool-section" data-pane="runtime">
+          <summary class="section-head">
+            <h2>Session</h2>
+            <span>Advanced runtime details</span>
+          </summary>
+          <div class="section-body">
+            <pre id="session"></pre>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="runtime" open>
+          <summary class="section-head">
+            <h2>Sectors</h2>
+            <span>Population/debug</span>
+          </summary>
+          <div class="section-body">
+            <pre id="sector-status"></pre>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="inspect">
+          <summary class="section-head">
             <h2>Assets</h2>
             <span>Validation/runtime</span>
+          </summary>
+          <div class="section-body">
+            <pre id="asset-status"></pre>
           </div>
-          <pre id="asset-status"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
+        </details>
+        <details class="section tool-section" data-pane="inspect">
+          <summary class="section-head">
             <h2>Model Tuning</h2>
             <span>Selected model</span>
-          </div>
-          <div class="generation-grid">
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
             <label>
               <span>Scale</span>
               <input id="model-scale" type="number" step="0.01" value="1" />
@@ -254,28 +339,36 @@ async function bootstrap(): Promise<void> {
             <button id="apply-model-tuning">Apply Tuning</button>
             <button id="refresh-model-tuning" class="secondary">Load Selected</button>
           </div>
-        </section>
-        <section class="section">
-          <div class="section-head">
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="inspect">
+          <summary class="section-head">
             <h2>Selection</h2>
             <span>Entity JSON</span>
+          </summary>
+          <div class="section-body">
+            <pre id="selection"></pre>
           </div>
-          <pre id="selection"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
+        </details>
+        <details class="section tool-section" data-pane="runtime" open>
+          <summary class="section-head">
             <h2>Issues</h2>
             <span>Command/runtime</span>
+          </summary>
+          <div class="section-body">
+            <pre id="issues"></pre>
           </div>
-          <pre id="issues"></pre>
-        </section>
-        <section class="section">
-          <div class="section-head">
+        </details>
+        <details class="section tool-section" data-pane="runtime">
+          <summary class="section-head">
             <h2>Events</h2>
             <span>Recent runtime log</span>
+          </summary>
+          <div class="section-body">
+            <pre id="event-log"></pre>
           </div>
-          <pre id="event-log"></pre>
-        </section>
+        </details>
+        </div>
       </aside>
       <main class="viewport">
         <div class="viewport-head">
@@ -284,21 +377,44 @@ async function bootstrap(): Promise<void> {
             <strong>Semantic world runtime first, genre modules second.</strong>
           </div>
           <div class="viewport-actions">
+            <button id="open-docs" class="secondary chrome-toggle" type="button">Docs</button>
             <button id="toggle-sidebar" class="secondary chrome-toggle" type="button" aria-expanded="true">Hide Tools</button>
             <div id="runtime-stats" class="runtime-stats"></div>
           </div>
         </div>
-        <div id="canvas-root" class="canvas-root">
+        <div id="canvas-root" class="canvas-root" tabindex="0" aria-label="Groundtruth viewport">
           <div id="playtest-hud" class="playtest-hud"></div>
         </div>
         <img id="screenshot-preview" class="screenshot-preview" alt="Latest screenshot" />
       </main>
     </div>
     <input id="snapshot-file" type="file" accept="application/json" hidden />
+    <div id="docs-modal" class="docs-modal hidden" aria-hidden="true">
+      <div class="docs-shell" role="dialog" aria-modal="true" aria-labelledby="docs-title">
+        <div class="docs-head">
+          <div>
+            <span class="eyebrow">Guide</span>
+            <h2 id="docs-title">How To Use Groundtruth</h2>
+          </div>
+          <div class="docs-head-actions">
+            <div class="docs-audience-tabs" role="tablist" aria-label="Docs audience">
+              <button id="docs-human" class="docs-audience-button active" type="button" data-docs-audience="human" aria-pressed="true">Human</button>
+              <button id="docs-ai" class="docs-audience-button" type="button" data-docs-audience="ai" aria-pressed="false">AI</button>
+            </div>
+          <button id="close-docs" class="secondary" type="button">Close</button>
+          </div>
+        </div>
+        <div class="docs-body">
+          <nav id="docs-nav" class="docs-nav"></nav>
+          <article id="docs-content" class="docs-content"></article>
+        </div>
+      </div>
+    </div>
   `;
 
   const canvasRoot = root.querySelector<HTMLElement>("#canvas-root");
   const shell = root.querySelector<HTMLElement>(".shell");
+  const overviewNode = root.querySelector<HTMLElement>("#overview");
   const diagnosticsNode = root.querySelector<HTMLElement>("#diagnostics");
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
@@ -317,10 +433,24 @@ async function bootstrap(): Promise<void> {
   const eventLogNode = root.querySelector<HTMLElement>("#event-log");
   const runtimeStatsNode = root.querySelector<HTMLElement>("#runtime-stats");
   const toggleSidebarButton = root.querySelector<HTMLButtonElement>("#toggle-sidebar");
+  const openDocsButton = root.querySelector<HTMLButtonElement>("#open-docs");
+  const docsModal = root.querySelector<HTMLElement>("#docs-modal");
+  const docsTitleNode = root.querySelector<HTMLElement>("#docs-title");
+  const closeDocsButton = root.querySelector<HTMLButtonElement>("#close-docs");
+  const docsNavNode = root.querySelector<HTMLElement>("#docs-nav");
+  const docsContentNode = root.querySelector<HTMLElement>("#docs-content");
+  const docsAudienceButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-docs-audience]"));
+  const paneButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-pane-target]"));
+  const toolSections = Array.from(root.querySelectorAll<HTMLElement>(".tool-section"));
   const commandScript = root.querySelector<HTMLTextAreaElement>("#command-script");
   const screenshotPreview = root.querySelector<HTMLImageElement>("#screenshot-preview");
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
+  const projectNameInput = root.querySelector<HTMLInputElement>("#project-name");
+  const projectTemplateInput = root.querySelector<HTMLSelectElement>("#project-template");
+  const projectTemplateSummaryNode = root.querySelector<HTMLElement>("#project-template-summary");
+  const worldStampInput = root.querySelector<HTMLSelectElement>("#world-stamp");
+  const worldStampSummaryNode = root.querySelector<HTMLElement>("#world-stamp-summary");
   const gameModeTemplateInput = root.querySelector<HTMLSelectElement>("#game-mode-template");
   const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
   const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
@@ -343,6 +473,7 @@ async function bootstrap(): Promise<void> {
   if (
     !canvasRoot ||
     !shell ||
+    !overviewNode ||
     !diagnosticsNode ||
     !evaluationNode ||
     !sessionNode ||
@@ -361,10 +492,24 @@ async function bootstrap(): Promise<void> {
     !eventLogNode ||
     !runtimeStatsNode ||
     !toggleSidebarButton ||
+    !openDocsButton ||
+    !docsModal ||
+    !docsTitleNode ||
+    !closeDocsButton ||
+    !docsNavNode ||
+    !docsContentNode ||
+    docsAudienceButtons.length === 0 ||
+    paneButtons.length === 0 ||
+    toolSections.length === 0 ||
     !commandScript ||
     !screenshotPreview ||
     !playtestHud ||
     !snapshotFileInput ||
+    !projectNameInput ||
+    !projectTemplateInput ||
+    !projectTemplateSummaryNode ||
+    !worldStampInput ||
+    !worldStampSummaryNode ||
     !gameModeTemplateInput ||
     !authoringModeInput ||
     !authoringPrefabInput ||
@@ -409,6 +554,9 @@ async function bootstrap(): Promise<void> {
   let runtimeModule = createRuntimeModule(store.getWorld().gameMode);
   let lastFrameTime = performance.now();
   let sidebarCollapsed = false;
+  let activeSidebarPane: "build" | "inspect" | "runtime" = "build";
+  let activeHelpAudience: HelpAudience = "human";
+  let activeHelpSectionId = helpContentByAudience.human[0]?.id ?? "";
   let pendingWorldRebuild = false;
   let worldSwapState: "idle" | "queued" | "rebuilding" | "failed" = "idle";
   let stressCooldownFrames = 0;
@@ -420,9 +568,12 @@ async function bootstrap(): Promise<void> {
   let moveDragActive = false;
   let resizeDragActive = false;
   let selectedZoneId: string | null = null;
+  let requestedGameMode: GameMode = store.peekWorld().gameMode;
   const stressActions: Array<() => void> = [];
   const runtimeEvents: string[] = [];
   const moduleDescriptors = listRuntimeModules();
+  const projectTemplates = listProjectTemplates();
+  const worldStamps = listWorldStamps();
 
   const appendEvent = (message: string): void => {
     const line = `${new Date().toLocaleTimeString()} | ${message}`;
@@ -442,7 +593,7 @@ async function bootstrap(): Promise<void> {
   };
 
   const stampWorldMode = <T extends ReturnType<WorldStore["getWorld"]>>(world: T): T => {
-    const gameMode = gameModeTemplateInput.value || world.gameMode;
+    const gameMode = requestedGameMode || world.gameMode;
     return applyGameModeTuning({
       ...world,
       gameMode,
@@ -654,6 +805,9 @@ async function bootstrap(): Promise<void> {
     if (authoringMode !== "move" && authoringMode !== "resize") {
       stopAuthoringDrag();
     }
+    if (authoringMode === "play") {
+      requestAnimationFrame(() => canvasRoot.focus());
+    }
   };
 
   const syncAuthoringPrefabs = (): void => {
@@ -668,16 +822,40 @@ async function bootstrap(): Promise<void> {
   };
 
   const syncGameModeTemplate = (): void => {
+    const currentValue = requestedGameMode;
     gameModeTemplateInput.innerHTML = moduleDescriptors
       .map(
         (descriptor) =>
           `<option value="${escapeHtml(descriptor.id)}">${escapeHtml(descriptor.label)}${descriptor.implemented ? "" : " (sandbox)"}</option>`,
       )
       .join("");
-    const currentMode = store.peekWorld().gameMode;
-    gameModeTemplateInput.value = moduleDescriptors.some((descriptor) => descriptor.id === currentMode)
-      ? currentMode
+    gameModeTemplateInput.value = moduleDescriptors.some((descriptor) => descriptor.id === currentValue)
+      ? currentValue
       : "third_person_survival";
+  };
+
+  const syncProjectTemplates = (): void => {
+    projectTemplateInput.innerHTML = projectTemplates
+      .map((template) => `<option value="${template.id}">${escapeHtml(template.label)}</option>`)
+      .join("");
+    if (!projectTemplates.some((template) => template.id === projectTemplateInput.value)) {
+      projectTemplateInput.value = projectTemplates[0]?.id ?? "";
+    }
+    const template = getProjectTemplate(projectTemplateInput.value);
+    projectTemplateSummaryNode.textContent = template
+      ? `${template.summary} Starts in ${template.gameMode.replaceAll("_", " ")} mode.`
+      : "No project template selected.";
+  };
+
+  const syncWorldStamps = (): void => {
+    worldStampInput.innerHTML = worldStamps
+      .map((stamp) => `<option value="${stamp.id}">${escapeHtml(stamp.label)}</option>`)
+      .join("");
+    if (!worldStamps.some((stamp) => stamp.id === worldStampInput.value)) {
+      worldStampInput.value = worldStamps[0]?.id ?? "";
+    }
+    const stamp = worldStamps.find((item) => item.id === worldStampInput.value);
+    worldStampSummaryNode.textContent = stamp?.summary ?? "No world stamp selected.";
   };
 
   const placePrefabAt = (prefabId: string, x: number, z: number): void => {
@@ -864,6 +1042,7 @@ async function bootstrap(): Promise<void> {
 
   const handleCanvasAuthoring = (event: PointerEvent): void => {
     if (authoringMode === "play") {
+      canvasRoot.focus();
       return;
     }
     if (event.button !== 0) {
@@ -963,11 +1142,23 @@ async function bootstrap(): Promise<void> {
     });
     const physicsStats = physics.getRuntimeStats();
 
+    if (document.activeElement !== projectNameInput) {
+      projectNameInput.value = world.metadata.name;
+    }
+
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     scene.setSectorOverlay(sectorOverlay);
+    overviewNode.innerHTML = [
+      renderOverviewRow("World", world.metadata.name),
+      renderOverviewRow("Mode", currentModuleDescriptor?.label ?? runtimeModule.id),
+      renderOverviewRow("Swap", worldSwapState),
+      renderOverviewRow("Selection", selectedEntityId ?? selectedZone?.id ?? "none"),
+      renderOverviewRow("Authoring", `${authoringMode} / ${authoringPrefabInput.value}`),
+      renderOverviewRow("Counts", `${world.entities.length} entities / ${world.zones.length} zones`),
+    ].join("");
     sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
@@ -1034,6 +1225,12 @@ async function bootstrap(): Promise<void> {
       worldSwapState = "rebuilding";
       physics.syncWorld(world);
       scene.setWorld(world);
+      runtimeModule.onWorldRebuilt?.(world, {
+        store,
+        scene,
+        physics,
+        input,
+      });
       worldSwapState = "idle";
       appendEvent(`World rebuilt: ${world.metadata.id}`);
       refreshSidebar();
@@ -1056,6 +1253,46 @@ async function bootstrap(): Promise<void> {
       })),
     );
     appendEvent("Requested generated flat outpost world.");
+  };
+
+  const buildTownWorld = (): void => {
+    store.setWorld(
+      stampWorldMode(makeTownGridWorld({
+        seed: parseNumber(seedInput.value, defaultFlatWorldOptions.seed, 1),
+        worldHalfExtent: parseNumber(sizeInput.value, defaultFlatWorldOptions.worldHalfExtent, 24),
+        buildingCount: parseNumber(buildingInput.value, defaultFlatWorldOptions.buildingCount, 1),
+        zombieCount: parseNumber(zombieInput.value, defaultFlatWorldOptions.zombieCount, 0),
+        crateCount: parseNumber(crateInput.value, defaultFlatWorldOptions.crateCount, 0),
+      })),
+    );
+    appendEvent("Requested generated town grid world.");
+  };
+
+  const startProjectFromTemplate = (): void => {
+    const template = getProjectTemplate(projectTemplateInput.value);
+    if (!template) {
+      appendEvent("Project start skipped: no template selected.");
+      return;
+    }
+    requestedGameMode = template.gameMode;
+    const world = stampWorldMode(template.buildWorld());
+    const projectName = projectNameInput.value.trim();
+    if (projectName.length > 0) {
+      world.metadata.name = projectName;
+      world.metadata.description = `${template.label}: ${template.summary}`;
+    }
+    store.setWorld(world);
+    appendEvent(`Started project '${world.metadata.name}' from template '${template.label}'.`);
+  };
+
+  const applySelectedWorldStamp = (): void => {
+    const stamp = worldStamps.find((item) => item.id === worldStampInput.value);
+    if (!stamp) {
+      appendEvent("Stamp apply skipped: no stamp selected.");
+      return;
+    }
+    store.setWorld(applyWorldStamp(store.getWorld(), stamp.id));
+    appendEvent(`Applied world stamp '${stamp.label}'.`);
   };
 
   const buildScaleTestWorld = (): void => {
@@ -1130,10 +1367,127 @@ async function bootstrap(): Promise<void> {
     requestAnimationFrame(() => scene.handleViewportResize());
   };
 
+  const syncSidebarPane = (): void => {
+    for (const button of paneButtons) {
+      const isActive = button.dataset.paneTarget === activeSidebarPane;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    }
+    for (const section of toolSections) {
+      section.toggleAttribute("hidden", section.dataset.pane !== activeSidebarPane);
+    }
+  };
+
+  const syncDocs = (): void => {
+    const activeSections = helpContentByAudience[activeHelpAudience];
+    docsTitleNode.textContent = activeHelpAudience === "human"
+      ? "How To Use Groundtruth"
+      : "Groundtruth AI Operator Guide";
+    for (const button of docsAudienceButtons) {
+      const isActive = button.dataset.docsAudience === activeHelpAudience;
+      button.classList.toggle("active", isActive);
+      button.setAttribute("aria-pressed", String(isActive));
+    }
+
+    docsNavNode.innerHTML = activeSections.map((section) => `
+      <button
+        class="docs-link ${section.id === activeHelpSectionId ? "active" : ""}"
+        type="button"
+        data-docs-section="${section.id}"
+      >
+        ${escapeHtml(section.title)}
+      </button>
+    `).join("");
+
+    const activeSection = activeSections.find((section) => section.id === activeHelpSectionId) ?? activeSections[0];
+    if (!activeSection) {
+      docsContentNode.innerHTML = "<p>No tutorial content available.</p>";
+      return;
+    }
+    docsContentNode.innerHTML = renderHelpSection(activeSection);
+  };
+
+  const setDocsOpen = (open: boolean): void => {
+    docsModal.classList.toggle("hidden", !open);
+    docsModal.setAttribute("aria-hidden", String(!open));
+    if (open) {
+      syncDocs();
+    }
+  };
+
   toggleSidebarButton.addEventListener("click", () => {
     sidebarCollapsed = !sidebarCollapsed;
     syncSidebarState();
   });
+
+  for (const button of paneButtons) {
+    button.addEventListener("click", () => {
+      const nextPane = button.dataset.paneTarget as "build" | "inspect" | "runtime" | undefined;
+      if (!nextPane) {
+        return;
+      }
+      activeSidebarPane = nextPane;
+      syncSidebarPane();
+    });
+  }
+
+  openDocsButton.addEventListener("click", () => {
+    setDocsOpen(true);
+  });
+
+  closeDocsButton.addEventListener("click", () => {
+    setDocsOpen(false);
+  });
+
+  docsModal.addEventListener("click", (event) => {
+    if (event.target === docsModal) {
+      setDocsOpen(false);
+    }
+  });
+
+  window.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !docsModal.classList.contains("hidden")) {
+      setDocsOpen(false);
+    }
+  });
+
+  docsNavNode.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const button = target.closest<HTMLElement>("[data-docs-section]");
+    if (!button) {
+      return;
+    }
+    const sectionId = button.dataset.docsSection;
+    if (!sectionId) {
+      return;
+    }
+    activeHelpSectionId = sectionId;
+    syncDocs();
+  });
+
+  for (const button of docsAudienceButtons) {
+    button.addEventListener("click", () => {
+      const audience = button.dataset.docsAudience as HelpAudience | undefined;
+      if (!audience) {
+        return;
+      }
+      activeHelpAudience = audience;
+      activeHelpSectionId = helpContentByAudience[audience][0]?.id ?? "";
+      syncDocs();
+    });
+  }
+
+  gameModeTemplateInput.addEventListener("change", () => {
+    requestedGameMode = gameModeTemplateInput.value as GameMode;
+    appendEvent(`Requested game mode set to '${requestedGameMode}'.`);
+    refreshSidebar();
+  });
+
+  projectTemplateInput.addEventListener("change", syncProjectTemplates);
+  worldStampInput.addEventListener("change", syncWorldStamps);
 
   root.querySelector<HTMLButtonElement>("#mode-play")?.addEventListener("click", () => {
     authoringMode = "play";
@@ -1223,6 +1577,18 @@ async function bootstrap(): Promise<void> {
     buildGeneratedWorld();
   });
 
+  root.querySelector<HTMLButtonElement>("#load-town")?.addEventListener("click", () => {
+    buildTownWorld();
+  });
+
+  root.querySelector<HTMLButtonElement>("#start-project")?.addEventListener("click", () => {
+    startProjectFromTemplate();
+  });
+
+  root.querySelector<HTMLButtonElement>("#apply-world-stamp")?.addEventListener("click", () => {
+    applySelectedWorldStamp();
+  });
+
   root.querySelector<HTMLButtonElement>("#load-scale-test")?.addEventListener("click", () => {
     buildScaleTestWorld();
   });
@@ -1243,6 +1609,7 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#load-sample")?.addEventListener("click", () => {
     store.setWorld(makeThirdPersonSurvivalWorld());
+    requestedGameMode = "third_person_survival";
     appendEvent("Requested authored survival slice.");
   });
 
@@ -1340,7 +1707,10 @@ async function bootstrap(): Promise<void> {
   sceneSearchInput.addEventListener("input", refreshSidebar);
   sceneFilterInput.addEventListener("change", refreshSidebar);
   syncSidebarState();
+  syncSidebarPane();
   syncGameModeTemplate();
+  syncProjectTemplates();
+  syncWorldStamps();
   syncAuthoringPrefabs();
   syncAuthoringMode();
   syncModelTuningInputs(true);
@@ -1810,6 +2180,35 @@ function formatEvaluation(
   return findings
     .map((finding) => `[${finding.severity}] ${finding.message}`)
     .join("\n");
+}
+
+function renderOverviewRow(label: string, value: string): string {
+  return `
+    <div class="overview-row">
+      <span class="overview-label">${escapeHtml(label)}</span>
+      <span class="overview-value">${escapeHtml(value)}</span>
+    </div>
+  `;
+}
+
+function renderHelpSection(section: HelpSection): string {
+  return `
+    <div class="docs-section-copy">
+      <p class="docs-summary">${escapeHtml(section.summary)}</p>
+      <ol class="docs-steps">
+        ${section.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}
+      </ol>
+      ${section.notes && section.notes.length > 0 ? `
+        <div class="docs-notes">
+          <h3>Notes</h3>
+          <ul>
+            ${section.notes.map((note) => `<li>${escapeHtml(note)}</li>`).join("")}
+          </ul>
+        </div>
+      ` : ""}
+      ${section.code ? `<pre class="docs-code">${escapeHtml(section.code)}</pre>` : ""}
+    </div>
+  `;
 }
 
 function formatInspector(

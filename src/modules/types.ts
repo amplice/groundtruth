@@ -28,10 +28,13 @@ export interface RuntimeSectorOverlay {
 }
 
 export type RuntimeFeatureId =
+  | "hostile_ai"
   | "sector_population"
   | "interaction_inventory"
   | "combat"
   | "combat_feedback";
+
+export type HostileActivityTier = "active" | "throttled" | "sleeping";
 
 export type RuntimeFeatureEvent =
   | {
@@ -61,8 +64,11 @@ export interface RuntimeFeatureHost {
   getControlLine(): string;
   getIdlePrompt(): string;
   getAttackKey(): string;
+  getHostileBehavior(): "arena_3d" | "lane_2d" | "survival_zombie";
   emitFeatureEvent(event: RuntimeFeatureEvent, context: ModuleContext): void;
   resolveEntityById(context: ModuleContext, entityId: string): import("../core/schema").ResolvedEntity;
+  isHostileEntity(entity: import("../core/schema").ResolvedEntity): boolean;
+  isDeadEntity(entity: import("../core/schema").ResolvedEntity): boolean;
   findNearestHostile(
     world: WorldDocument,
     source: import("../core/schema").ResolvedEntity,
@@ -90,6 +96,29 @@ export interface RuntimeFeatureHost {
   lockAnimationState(entityId: string, state: string, durationSeconds: number): void;
   cooldownReady(entityId: string): boolean;
   setCooldown(entityId: string, seconds: number): void;
+  syncAnimationState(
+    context: ModuleContext,
+    entityId: string,
+    state: string,
+    overrides?: Partial<import("../core/schema").AnimationComponent>,
+  ): void;
+  getCurrentLockedAction(
+    context: ModuleContext,
+    entityId: string,
+  ): import("../core/schema").ActionDefinition | null;
+  consumeHostileUpdateDt(
+    entityId: string,
+    dtSeconds: number,
+    intervalSeconds: number,
+  ): number | null;
+  recordHostileMotion(
+    entityId: string,
+    position: import("../core/schema").Vec3,
+    chasing: boolean,
+    dtSeconds: number,
+  ): void;
+  resetHostileActivity(): void;
+  noteHostileActivity(entityId: string, tier: HostileActivityTier): void;
   applyDamage(context: ModuleContext, targetId: string, amount: number): void;
   readHealth(entity: import("../core/schema").ResolvedEntity): string;
   pushEvent(message: string): void;
@@ -104,6 +133,11 @@ export interface RuntimeFeatureFrameResult {
 
 export interface RuntimeFeature {
   readonly id: RuntimeFeatureId;
+  onWorldRebuilt?(
+    world: WorldDocument,
+    context: ModuleContext,
+    host: RuntimeFeatureHost,
+  ): void;
   beginFrame?(
     dtSeconds: number,
     context: ModuleContext,
@@ -126,6 +160,12 @@ export interface RuntimeFeature {
     host: RuntimeFeatureHost,
     playerId: string,
   ): boolean;
+  onUpdateHostiles?(
+    dtSeconds: number,
+    context: ModuleContext,
+    host: RuntimeFeatureHost,
+    playerId: string,
+  ): boolean;
   onApplyDamage?(
     context: ModuleContext,
     host: RuntimeFeatureHost,
@@ -142,6 +182,7 @@ export interface RuntimeFeature {
 export interface RuntimeModule {
   readonly id: string;
   update(dtSeconds: number, context: ModuleContext): void;
+  onWorldRebuilt?(world: WorldDocument, context: ModuleContext): void;
   getStatusLines?(): string[];
   getDebugFindings?(): string[];
   getWorldDebug?(world: WorldDocument): string[];
