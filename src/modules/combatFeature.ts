@@ -24,10 +24,14 @@ export class CombatFeature implements RuntimeFeature {
       return true;
     }
 
-    const target = host.findNearestHostile(world, resolvedPlayer, combat.range, combat.targetTags);
+    const targetingMode = host.getGameplayPolicy().combat.targetingMode;
+    const target = targetingMode === "none"
+      ? null
+      : host.findNearestHostile(world, resolvedPlayer, combat.range, combat.targetTags);
     const attackAction = host.resolveActionDefinition(resolvedPlayer, "attack");
     const attackDuration = host.resolveActionDuration(context, playerId, attackAction);
-    host.setCooldown(playerId, target ? combat.cooldownSeconds : combat.cooldownSeconds * 0.4);
+    const missCooldownFactor = Math.max(0, host.getGameplayPolicy().combat.missCooldownFactor);
+    host.setCooldown(playerId, target ? combat.cooldownSeconds : combat.cooldownSeconds * missCooldownFactor);
     host.lockAnimationState(playerId, "attack", attackDuration);
     host.syncAction(context, playerId, attackAction);
 

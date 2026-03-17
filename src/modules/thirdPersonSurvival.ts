@@ -6,12 +6,16 @@ import { PresetActionModule } from "./thirdPersonAction";
 import { ModuleContext } from "./types";
 
 export class ThirdPersonSurvivalModule extends PresetActionModule {
-  private readonly sectorPopulation: SectorPopulationFeature;
+  private sectorPopulation: SectorPopulationFeature | null = null;
 
-  private readonly hostileAI: HostileAIFeature;
+  private hostileAI: HostileAIFeature | null = null;
 
   constructor() {
     super(THIRD_PERSON_SURVIVAL_PRESET);
+  }
+
+  override onWorldRebuilt(world: ReturnType<ModuleContext["store"]["peekWorld"]>, context: ModuleContext): void {
+    super.onWorldRebuilt(world, context);
     this.sectorPopulation = this.requireFeature<SectorPopulationFeature>("sector_population");
     this.hostileAI = this.requireFeature<HostileAIFeature>("hostile_ai");
   }
@@ -21,14 +25,16 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
     player: ResolvedEntity,
     overrideLine?: string,
   ): void {
-    const populationStats = this.sectorPopulation.getStats();
-    const hostileStats = this.hostileAI.getStats();
+    const populationStats = this.sectorPopulation?.getStats();
+    const hostileStats = this.hostileAI?.getStats();
     const inventory = player.components.inventory;
     const baseLines = [
       this.getControlLine(),
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
       `Zombies ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
-      `${hostileStats.summary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
+      hostileStats && populationStats
+        ? `${hostileStats.summary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`
+        : "Waiting for survival features to initialize.",
     ];
     if (player.components.health) {
       this.emitFeatureEvent(
@@ -58,8 +64,8 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
     context: ModuleContext,
     player: ResolvedEntity,
   ): void {
-    const populationStats = this.sectorPopulation.getStats();
-    const hostileStats = this.hostileAI.getStats();
+    const populationStats = this.sectorPopulation?.getStats();
+    const hostileStats = this.hostileAI?.getStats();
     const world = context.store.peekWorld();
     const deadZombies = world.entities
       .map((entity) => resolveEntity(world, entity))
@@ -80,7 +86,9 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.hostileActivityCounts.active} active, ${this.hostileActivityCounts.throttled} throttled, ${this.hostileActivityCounts.sleeping} sleeping`,
-      `${hostileStats.summary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`,
+      hostileStats && populationStats
+        ? `${hostileStats.summary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`
+        : "Survival features not initialized yet.",
     ];
 
     if (stuckZombies.length > 0) {

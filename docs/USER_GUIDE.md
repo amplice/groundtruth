@@ -8,10 +8,11 @@ The easiest way to use it is:
 
 1. Pick a game mode.
 2. Start from a template or generate a world.
-3. Click `Play`.
-4. Click once inside the 3D viewport.
-5. Move around and test the world.
-6. Switch back into authoring tools when you want to edit it.
+3. Adjust project features or gameplay policy if the module is close but the rules are wrong.
+4. Click `Play`.
+5. Click once inside the 3D viewport.
+6. Move around and test the world.
+7. Switch back into authoring tools when you want to edit it.
 
 ## First Run
 
@@ -77,6 +78,13 @@ Use this when you want to start from a coherent template instead of a blank or p
 - Pick a template
 - Click `Start Project From Template`
 - The selected template will also switch the active game mode for you
+- `Project Worlds` shows the worlds currently stored in the project
+- `Save Current World Copy` stores the active world as another project world
+- `Open Project World` switches the runtime to the selected project world
+- `Export Project` saves the whole active project
+- `Build Playable Export` saves a player-focused build document
+- `Import Project` restores a previously exported project
+- `Import Playable Export` loads a playable build document back into the editor as a project seed
 
 Current templates include:
 
@@ -88,6 +96,15 @@ Current templates include:
 
 `First-Person Patrol` and `Top-Down Encounter` currently start from the town-grid style.
 
+If you want a standalone playable folder instead of just a JSON export, use:
+
+```bash
+npm run build
+npm run export:playable -- --project path/to/your.project.json --out path/to/output-folder
+```
+
+That copies the built web runtime into the output folder, writes `game.json`, and boots the export in player mode instead of the full editor shell.
+
 ### World
 
 - `Generate Flat Outpost`: creates a normal procedural test world
@@ -97,6 +114,7 @@ Current templates include:
 - `Load Survival Slice`: loads the authored survival demo
 - `Reset World`: resets to the default empty state
 - `Export Snapshot`: saves the current world and screenshot
+- snapshots also carry the current project context
 - `Import Snapshot`: restores a saved snapshot
 - `Capture Screenshot`: updates the screenshot preview
 - `Stress Test Swaps`: repeatedly swaps worlds and selections to test rebuild stability
@@ -152,6 +170,55 @@ A good pattern is:
 3. Switch to `Place` or `Zone` for small edits.
 4. Use `Move` and `Resize` to tune what you just added.
 
+### Recipes
+
+Recipes start a more coherent project slice than a plain generator.
+
+Current recipes include:
+
+- Survival Town
+- First-Person Sweep
+- Top-Down Hotzone
+- Platformer Gauntlet
+
+Use `Start Project From Recipe` when you want Groundtruth to combine a mode, base layout, stamps, and feature defaults in one step.
+
+### Features
+
+This section controls project-level runtime capabilities for the active mode.
+
+- Toggle capabilities like hostile AI, combat, interaction, combat feedback, or sector population on and off
+- These toggles are saved with the project
+- Turning a feature off removes that capability from the active module instead of only hiding its UI
+
+### Gameplay Policy
+
+This section is where Groundtruth starts behaving more like an engine instead of one fixed built-in game.
+
+Use it when the active module is close, but the rules need to change for your project.
+
+Current first-pass policy controls include:
+
+- `Facing`: move vector, cursor aim, or camera forward
+- `Idle facing`: keep last, cursor aim, or camera forward
+- `Camera distance`
+- `Camera pitch`
+- `Attack targeting`: nearest hostile or none
+- `Lock movement on attack`
+- `Loot transfer`: take one or take all
+- `Empty container`: persist or despawn
+- `Respawn mode`
+- `Respawn key`
+- `Aggro scale`
+- `Leash scale`
+
+Buttons:
+
+- `Apply Policy`: saves the current policy override into the active project
+- `Reset To Preset`: removes the project override and returns to the preset default
+
+These are project-level behavior choices, not engine code edits.
+
 ### Command Script
 
 This lets you change the world with JSON instead of clicking everything manually.
@@ -162,11 +229,22 @@ Example:
 
 ```json
 [
-  { "op": "set_world_name", "name": "My Test Arena" },
-  { "op": "set_game_mode", "gameMode": "third_person" },
-  { "op": "generate_town_world" }
+  { "op": "set_project_name", "name": "Town Patrol Prototype" },
+  { "op": "start_world_recipe", "recipeId": "first_person_sweep" },
+  { "op": "set_project_feature", "featureId": "sector_population", "enabled": false },
+  {
+    "op": "set_project_gameplay_policy",
+    "policyId": "third_person_survival",
+    "patch": {
+      "facing": { "mode": "move_vector" },
+      "loot": { "emptyContainerMode": "persist" }
+    }
+  },
+  { "op": "save_project_world", "name": "Town Patrol Variant A" }
 ]
 ```
+
+You can use the command script for both world changes and project changes.
 
 ## Inspect Workspace
 
@@ -249,9 +327,32 @@ This is the combined problem list:
 - evaluation warnings
 - command issues
 
+### Iteration
+
+This section turns findings into suggested next actions.
+
+- `Load To Script`: puts the suggested commands into the command script for review
+- `Apply Now`: executes the suggested commands immediately
+- each suggestion also shows how many times it has already been applied in the current world
+- `Recently applied` helps you avoid repeating the same fix blindly
+
+Use this when you want Groundtruth to help you move from “what is wrong” to “what should I try next.”
+
 ### Events
 
 Shows recent runtime events like combat, looting, deaths, and rebuilds.
+
+### Playtest
+
+Use this when you want to capture a real playtest run instead of relying on memory.
+
+- `Start Session`: begins a named playtest session
+- `Stop Session`: closes the session
+- `Add Note`: records a quick observation
+- `Export Report`: exports a playtest report with screenshot, project, world, evaluation, events, and notes
+- Groundtruth also derives simple playtest findings from the session and surfaces them in the Runtime issues flow
+- after you export a report, Groundtruth stores that summary as the current playtest baseline
+- while a session is active, the Playtest panel compares deaths, loot events, and player-hit events against the last exported baseline
 
 ## Playtesting Tips
 

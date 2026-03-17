@@ -9,19 +9,33 @@ export type { FlatWorldOptions } from "./worldFactory";
 export const exampleCommandScript = JSON.stringify(
   [
     {
-      op: "generate_flat_world",
-      options: {
-        seed: 21,
-        worldHalfExtent: 84,
-        buildingCount: 16,
-        zombieCount: 24,
-        crateCount: 8,
+      op: "set_project_name",
+      name: "Downtown Patrol Prototype",
+    },
+    {
+      op: "start_project_template",
+      templateId: "first_person_patrol",
+    },
+    {
+      op: "set_project_feature",
+      featureId: "sector_population",
+      enabled: false,
+    },
+    {
+      op: "set_project_gameplay_policy",
+      policyId: "first_person_action",
+      patch: {
+        loot: {
+          emptyContainerMode: "persist",
+        },
+        respawn: {
+          mode: "disabled",
+        },
       },
     },
     {
-      op: "set_world_name",
-      name: "Generated Test Basin",
-      description: "Procedural flat-world test with roads, cube buildings, and zombie spawns.",
+      op: "apply_world_stamp",
+      stampId: "encounter_cluster",
     },
   ],
   null,

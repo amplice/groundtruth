@@ -21,6 +21,16 @@ export interface EvaluationReport {
   counts: Record<EvaluationSeverity, number>;
 }
 
+export interface PlaytestEvaluationInput {
+  startedAt: string;
+  endedAt?: string;
+  noteCount: number;
+  recentEventCount: number;
+  deathEvents: number;
+  lootEvents: number;
+  playerHitEvents: number;
+}
+
 interface ReachabilityGrid {
   minX: number;
   minZ: number;
@@ -78,24 +88,100 @@ export function evaluateWorld(world: WorldDocument): EvaluationReport {
     evaluateReachability(entities, player, spawnZones, safeZones, lootEntities, findings);
   }
 
-  const counts = {
-    info: findings.filter((finding) => finding.severity === "info").length,
-    warn: findings.filter((finding) => finding.severity === "warn").length,
-    error: findings.filter((finding) => finding.severity === "error").length,
-  };
-
   if (findings.length === 0) {
     findings.push({
       severity: "info",
       code: "world_ok",
       message: "No immediate evaluation findings.",
     });
-    counts.info += 1;
   }
 
+  return withCounts(findings);
+}
+
+export function evaluatePlaytest(input: PlaytestEvaluationInput): EvaluationReport {
+  const findings: EvaluationFinding[] = [];
+
+  if (!input.endedAt) {
+    findings.push({
+      severity: "info",
+      code: "playtest_active",
+      message: "Playtest session is still active.",
+    });
+  }
+
+  if (input.recentEventCount < 3) {
+    findings.push({
+      severity: "info",
+      code: "playtest_light_coverage",
+      message: "Playtest session captured very little runtime activity.",
+    });
+  }
+
+  if (input.playerHitEvents >= 5 && input.lootEvents === 0) {
+    findings.push({
+      severity: "warn",
+      code: "playtest_pressure_without_reward",
+      message: "Playtest shows repeated player pressure without any recorded loot gain.",
+    });
+  }
+
+  if (input.deathEvents >= 2) {
+    findings.push({
+      severity: "warn",
+      code: "playtest_high_death_count",
+      message: `Playtest captured ${input.deathEvents} death events.`,
+    });
+  }
+
+  if (input.noteCount === 0 && (input.deathEvents > 0 || input.playerHitEvents >= 4)) {
+    findings.push({
+      severity: "info",
+      code: "playtest_missing_notes",
+      message: "Playtest had significant events but no notes were recorded.",
+    });
+  }
+
+  if (input.noteCount >= 3) {
+    findings.push({
+      severity: "info",
+      code: "playtest_documented",
+      message: `Playtest captured ${input.noteCount} notes.`,
+    });
+  }
+
+  if (
+    input.deathEvents === 0 &&
+    input.lootEvents === 0 &&
+    input.playerHitEvents === 0 &&
+    input.recentEventCount >= 3
+  ) {
+    findings.push({
+      severity: "info",
+      code: "playtest_low_signal",
+      message: "Playtest ran, but no high-signal combat or reward events were detected.",
+    });
+  }
+
+  if (findings.length === 0) {
+    findings.push({
+      severity: "info",
+      code: "playtest_ok",
+      message: "No immediate playtest evaluation findings.",
+    });
+  }
+
+  return withCounts(findings);
+}
+
+function withCounts(findings: EvaluationFinding[]): EvaluationReport {
   return {
     findings,
-    counts,
+    counts: {
+      info: findings.filter((finding) => finding.severity === "info").length,
+      warn: findings.filter((finding) => finding.severity === "warn").length,
+      error: findings.filter((finding) => finding.severity === "error").length,
+    },
   };
 }
 
@@ -762,7 +848,7 @@ function zoneAabb(zone: ZoneSpec): { min: Vec3; max: Vec3 } {
 }
 
 function isIgnoredForOverlap(entity: ResolvedEntity): boolean {
-  return entity.id === "ground" || entity.id.startsWith("road.");
+  return entity.id === "ground" || entity.id.startsWith("road.") || entity.prefabId === "road_strip";
 }
 
 function isBlockingObstacle(entity: ResolvedEntity): boolean {

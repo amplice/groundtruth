@@ -1,10 +1,36 @@
 import "./styles.css";
 
-import { parseCommandScript } from "./core/commands";
+import { AppCommand, isWorldCommand, parseCommandScript } from "./core/commands";
+import {
+  createPlayableBuildDocument,
+  createProjectExportEnvelope,
+  isPlayableBuildDocument,
+  resolveImportedProject,
+} from "./core/exportFormat";
+import { buildIterationSuggestions, IterationSuggestion } from "./core/iteration";
+import {
+  EmptyContainerMode,
+  LootTransferMode,
+  RespawnMode,
+  ThirdPersonFacingMode,
+  ThirdPersonIdleFacingMode,
+  ThirdPersonActionGameplayPolicyPatch,
+} from "./core/policies";
 import { getProjectTemplate, listProjectTemplates } from "./core/projectTemplates";
+import { getWorldRecipe, listWorldRecipes } from "./core/worldRecipes";
 import { HelpAudience, HelpSection, helpContentByAudience } from "./docs/helpContent";
-import { evaluateWorld } from "./core/evaluation";
-import { GameMode, ModelRenderComponent, WorldDocument, ZoneSpec, emptyWorld, makeVec3, resolveEntity } from "./core/schema";
+import { evaluatePlaytest, evaluateWorld } from "./core/evaluation";
+import {
+  GameMode,
+  ModelRenderComponent,
+  ProjectDocument,
+  WorldDocument,
+  ZoneSpec,
+  emptyWorld,
+  makeVec3,
+  projectFromWorld,
+  resolveEntity,
+} from "./core/schema";
 import {
   defaultFlatWorldOptions,
   exampleCommandScript,
@@ -13,7 +39,11 @@ import {
   makeThirdPersonSurvivalWorld,
 } from "./core/sampleWorld";
 import { applyWorldStamp, listWorldStamps } from "./core/worldStamps";
-import { getActionModulePreset } from "./modules/actionModulePresets";
+import {
+  getActionModulePreset,
+  policyCameraRig,
+  resolvePresetGameplayPolicy,
+} from "./modules/actionModulePresets";
 import { WorldStore } from "./core/worldStore";
 import { createRuntimeModule, listRuntimeModules } from "./modules/registry";
 import { InputController } from "./runtime/input";
@@ -35,9 +65,9 @@ async function bootstrap(): Promise<void> {
           <p>Browser-first semantic runtime for AI-native 3D games.</p>
         </div>
         <section class="overview-card">
-          <div class="section-head compact">
-            <h2>Overview</h2>
-            <span>Current workspace</span>
+          <div class="overview-head">
+            <h2 class="overview-title">Overview</h2>
+            <span class="overview-subtitle">Current workspace</span>
           </div>
           <div id="overview" class="overview-copy"></div>
         </section>
@@ -64,8 +94,21 @@ async function bootstrap(): Promise<void> {
               </label>
             </div>
             <div id="project-template-summary" class="inline-summary"></div>
-            <div class="controls compact-controls">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Project Worlds</span>
+                <select id="project-world"></select>
+              </label>
+            </div>
+            <div id="project-world-summary" class="inline-summary"></div>
+            <div class="controls">
               <button id="start-project">Start Project From Template</button>
+              <button id="save-project-world" class="secondary">Save Current World Copy</button>
+              <button id="open-project-world" class="secondary">Open Project World</button>
+              <button id="export-project" class="secondary">Export Project</button>
+              <button id="export-playable" class="secondary">Build Playable Export</button>
+              <button id="import-project" class="secondary">Import Project</button>
+              <button id="import-playable" class="secondary">Import Playable Export</button>
             </div>
           </div>
         </details>
@@ -225,6 +268,116 @@ async function bootstrap(): Promise<void> {
         </details>
         <details class="section tool-section" data-pane="build">
           <summary class="section-head">
+            <h2>Recipes</h2>
+            <span>Coherent game slices</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Recipe</span>
+                <select id="world-recipe"></select>
+              </label>
+            </div>
+            <div id="world-recipe-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="start-world-recipe">Start Project From Recipe</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build">
+          <summary class="section-head">
+            <h2>Features</h2>
+            <span>Project capability toggles</span>
+          </summary>
+          <div class="section-body">
+            <div id="feature-toggles" class="feature-toggle-list"></div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build">
+          <summary class="section-head">
+            <h2>Gameplay Policy</h2>
+            <span>Third-person action rules</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label>
+                <span>Facing</span>
+                <select id="policy-facing-mode">
+                  <option value="move_vector">move_vector</option>
+                  <option value="cursor_aim">cursor_aim</option>
+                  <option value="camera_forward">camera_forward</option>
+                </select>
+              </label>
+              <label>
+                <span>Idle facing</span>
+                <select id="policy-idle-facing-mode">
+                  <option value="keep_last">keep_last</option>
+                  <option value="cursor_aim">cursor_aim</option>
+                  <option value="camera_forward">camera_forward</option>
+                </select>
+              </label>
+              <label>
+                <span>Camera distance</span>
+                <input id="policy-camera-distance" type="number" step="0.1" value="10.5" />
+              </label>
+              <label>
+                <span>Camera pitch</span>
+                <input id="policy-camera-pitch" type="number" step="0.01" value="0.78" />
+              </label>
+              <label>
+                <span>Attack targeting</span>
+                <select id="policy-targeting-mode">
+                  <option value="nearest_hostile">nearest_hostile</option>
+                  <option value="none">none</option>
+                </select>
+              </label>
+              <label class="toggle inline-toggle">
+                <input id="policy-attack-lock" type="checkbox" checked />
+                <span>Lock movement on attack</span>
+              </label>
+              <label>
+                <span>Loot transfer</span>
+                <select id="policy-loot-transfer">
+                  <option value="take_one">take_one</option>
+                  <option value="take_all">take_all</option>
+                </select>
+              </label>
+              <label>
+                <span>Empty container</span>
+                <select id="policy-empty-container">
+                  <option value="persist">persist</option>
+                  <option value="despawn">despawn</option>
+                </select>
+              </label>
+              <label>
+                <span>Respawn mode</span>
+                <select id="policy-respawn-mode">
+                  <option value="manual">manual</option>
+                  <option value="disabled">disabled</option>
+                </select>
+              </label>
+              <label>
+                <span>Respawn key</span>
+                <input id="policy-respawn-key" value="KeyR" />
+              </label>
+              <label>
+                <span>Aggro scale</span>
+                <input id="policy-aggro-scale" type="number" step="0.05" value="1" />
+              </label>
+              <label>
+                <span>Leash scale</span>
+                <input id="policy-leash-scale" type="number" step="0.05" value="1.1" />
+              </label>
+            </div>
+            <div id="gameplay-policy-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="apply-gameplay-policy" class="secondary">Apply Policy</button>
+              <button id="reset-gameplay-policy" class="secondary">Reset To Preset</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="build">
+          <summary class="section-head">
             <h2>Command Script</h2>
             <span>Semantic JSON</span>
           </summary>
@@ -361,6 +514,40 @@ async function bootstrap(): Promise<void> {
         </details>
         <details class="section tool-section" data-pane="runtime">
           <summary class="section-head">
+            <h2>Iteration</h2>
+            <span>Suggested next actions</span>
+          </summary>
+          <div class="section-body">
+            <div id="iteration-suggestions" class="iteration-suggestions"></div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="runtime">
+          <summary class="section-head">
+            <h2>Playtest</h2>
+            <span>Session reports</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Session Label</span>
+                <input id="playtest-label" value="Playtest Session" />
+              </label>
+              <label class="wide">
+                <span>Note</span>
+                <input id="playtest-note" placeholder="Observed issue, readability problem, combat note..." />
+              </label>
+            </div>
+            <div class="controls">
+              <button id="start-playtest">Start Session</button>
+              <button id="stop-playtest" class="secondary">Stop Session</button>
+              <button id="add-playtest-note" class="secondary">Add Note</button>
+              <button id="export-playtest-report" class="secondary">Export Report</button>
+            </div>
+            <pre id="playtest-status"></pre>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="runtime">
+          <summary class="section-head">
             <h2>Events</h2>
             <span>Recent runtime log</span>
           </summary>
@@ -389,6 +576,8 @@ async function bootstrap(): Promise<void> {
       </main>
     </div>
     <input id="snapshot-file" type="file" accept="application/json" hidden />
+    <input id="project-file" type="file" accept="application/json" hidden />
+    <input id="playable-file" type="file" accept="application/json" hidden />
     <div id="docs-modal" class="docs-modal hidden" aria-hidden="true">
       <div class="docs-shell" role="dialog" aria-modal="true" aria-labelledby="docs-title">
         <div class="docs-head">
@@ -421,6 +610,8 @@ async function bootstrap(): Promise<void> {
   const sectorStatusNode = root.querySelector<HTMLElement>("#sector-status");
   const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
   const authoringPaletteNode = root.querySelector<HTMLElement>("#authoring-palette");
+  const featureTogglesNode = root.querySelector<HTMLElement>("#feature-toggles");
+  const gameplayPolicySummaryNode = root.querySelector<HTMLElement>("#gameplay-policy-summary");
   const sceneSearchInput = root.querySelector<HTMLInputElement>("#scene-search");
   const sceneFilterInput = root.querySelector<HTMLSelectElement>("#scene-filter");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
@@ -430,7 +621,9 @@ async function bootstrap(): Promise<void> {
   const modelOffsetYInput = root.querySelector<HTMLInputElement>("#model-offset-y");
   const selectionNode = root.querySelector<HTMLElement>("#selection");
   const issuesNode = root.querySelector<HTMLElement>("#issues");
+  const iterationSuggestionsNode = root.querySelector<HTMLElement>("#iteration-suggestions");
   const eventLogNode = root.querySelector<HTMLElement>("#event-log");
+  const playtestStatusNode = root.querySelector<HTMLElement>("#playtest-status");
   const runtimeStatsNode = root.querySelector<HTMLElement>("#runtime-stats");
   const toggleSidebarButton = root.querySelector<HTMLButtonElement>("#toggle-sidebar");
   const openDocsButton = root.querySelector<HTMLButtonElement>("#open-docs");
@@ -446,11 +639,31 @@ async function bootstrap(): Promise<void> {
   const screenshotPreview = root.querySelector<HTMLImageElement>("#screenshot-preview");
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
+  const projectFileInput = root.querySelector<HTMLInputElement>("#project-file");
+  const playableFileInput = root.querySelector<HTMLInputElement>("#playable-file");
   const projectNameInput = root.querySelector<HTMLInputElement>("#project-name");
+  const playtestLabelInput = root.querySelector<HTMLInputElement>("#playtest-label");
+  const playtestNoteInput = root.querySelector<HTMLInputElement>("#playtest-note");
   const projectTemplateInput = root.querySelector<HTMLSelectElement>("#project-template");
   const projectTemplateSummaryNode = root.querySelector<HTMLElement>("#project-template-summary");
+  const projectWorldInput = root.querySelector<HTMLSelectElement>("#project-world");
+  const projectWorldSummaryNode = root.querySelector<HTMLElement>("#project-world-summary");
+  const worldRecipeInput = root.querySelector<HTMLSelectElement>("#world-recipe");
+  const worldRecipeSummaryNode = root.querySelector<HTMLElement>("#world-recipe-summary");
   const worldStampInput = root.querySelector<HTMLSelectElement>("#world-stamp");
   const worldStampSummaryNode = root.querySelector<HTMLElement>("#world-stamp-summary");
+  const policyFacingModeInput = root.querySelector<HTMLSelectElement>("#policy-facing-mode");
+  const policyIdleFacingModeInput = root.querySelector<HTMLSelectElement>("#policy-idle-facing-mode");
+  const policyCameraDistanceInput = root.querySelector<HTMLInputElement>("#policy-camera-distance");
+  const policyCameraPitchInput = root.querySelector<HTMLInputElement>("#policy-camera-pitch");
+  const policyTargetingModeInput = root.querySelector<HTMLSelectElement>("#policy-targeting-mode");
+  const policyAttackLockInput = root.querySelector<HTMLInputElement>("#policy-attack-lock");
+  const policyLootTransferInput = root.querySelector<HTMLSelectElement>("#policy-loot-transfer");
+  const policyEmptyContainerInput = root.querySelector<HTMLSelectElement>("#policy-empty-container");
+  const policyRespawnModeInput = root.querySelector<HTMLSelectElement>("#policy-respawn-mode");
+  const policyRespawnKeyInput = root.querySelector<HTMLInputElement>("#policy-respawn-key");
+  const policyAggroScaleInput = root.querySelector<HTMLInputElement>("#policy-aggro-scale");
+  const policyLeashScaleInput = root.querySelector<HTMLInputElement>("#policy-leash-scale");
   const gameModeTemplateInput = root.querySelector<HTMLSelectElement>("#game-mode-template");
   const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
   const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
@@ -480,6 +693,8 @@ async function bootstrap(): Promise<void> {
     !sectorStatusNode ||
     !sceneInventoryNode ||
     !authoringPaletteNode ||
+    !featureTogglesNode ||
+    !gameplayPolicySummaryNode ||
     !sceneSearchInput ||
     !sceneFilterInput ||
     !inspectorNode ||
@@ -489,7 +704,9 @@ async function bootstrap(): Promise<void> {
     !modelOffsetYInput ||
     !selectionNode ||
     !issuesNode ||
+    !iterationSuggestionsNode ||
     !eventLogNode ||
+    !playtestStatusNode ||
     !runtimeStatsNode ||
     !toggleSidebarButton ||
     !openDocsButton ||
@@ -505,11 +722,31 @@ async function bootstrap(): Promise<void> {
     !screenshotPreview ||
     !playtestHud ||
     !snapshotFileInput ||
+    !projectFileInput ||
+    !playableFileInput ||
     !projectNameInput ||
+    !playtestLabelInput ||
+    !playtestNoteInput ||
     !projectTemplateInput ||
     !projectTemplateSummaryNode ||
+    !projectWorldInput ||
+    !projectWorldSummaryNode ||
+    !worldRecipeInput ||
+    !worldRecipeSummaryNode ||
     !worldStampInput ||
     !worldStampSummaryNode ||
+    !policyFacingModeInput ||
+    !policyIdleFacingModeInput ||
+    !policyCameraDistanceInput ||
+    !policyCameraPitchInput ||
+    !policyTargetingModeInput ||
+    !policyAttackLockInput ||
+    !policyLootTransferInput ||
+    !policyEmptyContainerInput ||
+    !policyRespawnModeInput ||
+    !policyRespawnKeyInput ||
+    !policyAggroScaleInput ||
+    !policyLeashScaleInput ||
     !gameModeTemplateInput ||
     !authoringModeInput ||
     !authoringPrefabInput ||
@@ -532,7 +769,9 @@ async function bootstrap(): Promise<void> {
     throw new Error("UI bootstrap failed.");
   }
 
-  const store = new WorldStore(makeFlatOutpostWorld());
+  const bootConfig = readBootConfig();
+  const bootProject = await loadBootProject(bootConfig);
+  const store = new WorldStore(bootProject ?? makeFlatOutpostWorld());
   let authoringMode: "play" | "place" | "move" | "resize" | "zone" = "play";
   const scene = new SceneRuntime(canvasRoot, (selection: SelectionTarget) => {
     if (authoringMode !== "play") {
@@ -553,7 +792,7 @@ async function bootstrap(): Promise<void> {
   const input = new InputController();
   let runtimeModule = createRuntimeModule(store.getWorld().gameMode);
   let lastFrameTime = performance.now();
-  let sidebarCollapsed = false;
+  let sidebarCollapsed = bootConfig.mode === "player";
   let activeSidebarPane: "build" | "inspect" | "runtime" = "build";
   let activeHelpAudience: HelpAudience = "human";
   let activeHelpSectionId = helpContentByAudience.human[0]?.id ?? "";
@@ -573,7 +812,15 @@ async function bootstrap(): Promise<void> {
   const runtimeEvents: string[] = [];
   const moduleDescriptors = listRuntimeModules();
   const projectTemplates = listProjectTemplates();
+  const worldRecipes = listWorldRecipes();
   const worldStamps = listWorldStamps();
+
+  if (bootConfig.mode === "player") {
+    shell.classList.add("player-shell");
+    canvasRoot.focus();
+  }
+  let playtestSession: PlaytestSession | null = null;
+  let latestIterationSuggestions: IterationSuggestion[] = [];
 
   const appendEvent = (message: string): void => {
     const line = `${new Date().toLocaleTimeString()} | ${message}`;
@@ -847,6 +1094,21 @@ async function bootstrap(): Promise<void> {
       : "No project template selected.";
   };
 
+  const syncProjectWorlds = (): void => {
+    const project = store.peekProject();
+    const worlds = Object.values(project.worlds).sort((left, right) => left.metadata.name.localeCompare(right.metadata.name));
+    projectWorldInput.innerHTML = worlds
+      .map((world) => `<option value="${escapeHtml(world.metadata.id)}">${escapeHtml(world.metadata.name)}</option>`)
+      .join("");
+    if (!worlds.some((world) => world.metadata.id === projectWorldInput.value)) {
+      projectWorldInput.value = project.currentWorldId;
+    }
+    const selectedWorld = project.worlds[projectWorldInput.value] ?? project.worlds[project.currentWorldId];
+    projectWorldSummaryNode.textContent = selectedWorld
+      ? `${Object.keys(project.worlds).length} project worlds. Active world: ${project.worlds[project.currentWorldId]?.metadata.name ?? selectedWorld.metadata.name}. Selected world mode: ${selectedWorld.gameMode.replaceAll("_", " ")}.`
+      : "No project worlds available.";
+  };
+
   const syncWorldStamps = (): void => {
     worldStampInput.innerHTML = worldStamps
       .map((stamp) => `<option value="${stamp.id}">${escapeHtml(stamp.label)}</option>`)
@@ -856,6 +1118,107 @@ async function bootstrap(): Promise<void> {
     }
     const stamp = worldStamps.find((item) => item.id === worldStampInput.value);
     worldStampSummaryNode.textContent = stamp?.summary ?? "No world stamp selected.";
+  };
+
+  const syncWorldRecipes = (): void => {
+    worldRecipeInput.innerHTML = worldRecipes
+      .map((recipe) => `<option value="${recipe.id}">${escapeHtml(recipe.label)}</option>`)
+      .join("");
+    if (!worldRecipes.some((recipe) => recipe.id === worldRecipeInput.value)) {
+      worldRecipeInput.value = worldRecipes[0]?.id ?? "";
+    }
+    const recipe = getWorldRecipe(worldRecipeInput.value);
+    worldRecipeSummaryNode.textContent = recipe?.summary ?? "No world recipe selected.";
+  };
+
+  const syncFeatureToggles = (): void => {
+    const preset = getActionModulePreset(store.peekWorld().gameMode);
+    if (!preset || !preset.featureIds || preset.featureIds.length === 0) {
+      featureTogglesNode.innerHTML = '<div class="inventory-empty">No configurable runtime features for this mode.</div>';
+      return;
+    }
+    const featureOverrides = store.peekProject().runtime.featureOverrides;
+    featureTogglesNode.innerHTML = preset.featureIds
+      .map((featureId) => {
+        const enabled = featureOverrides[featureId]?.enabled ?? true;
+        return `
+          <label class="toggle feature-toggle-row">
+            <input type="checkbox" data-feature-toggle="${escapeHtml(featureId)}" ${enabled ? "checked" : ""} />
+            <span>${escapeHtml(featureId.replaceAll("_", " "))}</span>
+          </label>
+        `;
+      })
+      .join("");
+  };
+
+  const syncGameplayPolicyControls = (): void => {
+    const preset = getActionModulePreset(store.peekWorld().gameMode);
+    if (!preset) {
+      gameplayPolicySummaryNode.textContent = "No configurable gameplay policy for this mode.";
+      return;
+    }
+    const policy = resolvePresetGameplayPolicy(preset, store.peekProject());
+    policyFacingModeInput.value = policy.facing.mode;
+    policyIdleFacingModeInput.value = policy.facing.idleMode;
+    policyCameraDistanceInput.value = policy.camera.distance.toFixed(1);
+    policyCameraPitchInput.value = policy.camera.pitch.toFixed(2);
+    policyTargetingModeInput.value = policy.combat.targetingMode;
+    policyAttackLockInput.checked = policy.combat.movementLockOnAttack;
+    policyLootTransferInput.value = policy.loot.transferMode;
+    policyEmptyContainerInput.value = policy.loot.emptyContainerMode;
+    policyRespawnModeInput.value = policy.respawn.mode;
+    policyRespawnKeyInput.value = policy.respawn.key ?? policy.controls.respawnKey ?? "";
+    policyAggroScaleInput.value = policy.hostile.aggroRadiusScale.toFixed(2);
+    policyLeashScaleInput.value = policy.hostile.leashRadiusScale.toFixed(2);
+    gameplayPolicySummaryNode.textContent =
+      `Policy '${preset.policyId}': facing ${policy.facing.mode}, camera ${policy.camera.mode} ${policy.camera.distance.toFixed(1)}m @ ${policy.camera.pitch.toFixed(2)}rad, combat ${policy.combat.targetingMode}/${policy.combat.movementLockOnAttack ? "lock" : "free"}, loot ${policy.loot.transferMode}/${policy.loot.emptyContainerMode}, respawn ${policy.respawn.mode}, hostile aggro ${policy.hostile.aggroRadiusScale.toFixed(2)}x leash ${policy.hostile.leashRadiusScale.toFixed(2)}x.`;
+  };
+
+  const applyGameplayPolicyFromInputs = (): void => {
+    const preset = getActionModulePreset(store.peekWorld().gameMode);
+    if (!preset) {
+      appendEvent("Gameplay policy apply skipped: active mode has no configurable action policy.");
+      return;
+    }
+    const patch: ThirdPersonActionGameplayPolicyPatch = {
+      facing: {
+        mode: policyFacingModeInput.value as ThirdPersonFacingMode,
+        idleMode: policyIdleFacingModeInput.value as ThirdPersonIdleFacingMode,
+      },
+      camera: {
+        distance: readNumber(policyCameraDistanceInput.value, 10.5),
+        pitch: readNumber(policyCameraPitchInput.value, 0.78),
+      },
+      combat: {
+        targetingMode: policyTargetingModeInput.value as "nearest_hostile" | "none",
+        movementLockOnAttack: policyAttackLockInput.checked,
+      },
+      loot: {
+        transferMode: policyLootTransferInput.value as LootTransferMode,
+        emptyContainerMode: policyEmptyContainerInput.value as EmptyContainerMode,
+      },
+      respawn: {
+        mode: policyRespawnModeInput.value as RespawnMode,
+        key: policyRespawnKeyInput.value.trim() || undefined,
+      },
+      hostile: {
+        aggroRadiusScale: readNumber(policyAggroScaleInput.value, 1),
+        leashRadiusScale: readNumber(policyLeashScaleInput.value, 1.1),
+      },
+    };
+    store.setProjectGameplayPolicy(preset.policyId, patch);
+    appendEvent(`Applied gameplay policy override '${preset.policyId}'.`);
+  };
+
+  const resetGameplayPolicyToPreset = (): void => {
+    const preset = getActionModulePreset(store.peekWorld().gameMode);
+    if (!preset) {
+      appendEvent("Gameplay policy reset skipped: active mode has no configurable action policy.");
+      return;
+    }
+    store.clearProjectGameplayPolicy(preset.policyId);
+    syncGameplayPolicyControls();
+    appendEvent(`Reset gameplay policy '${preset.policyId}' to preset defaults.`);
   };
 
   const placePrefabAt = (prefabId: string, x: number, z: number): void => {
@@ -1141,6 +1504,10 @@ async function bootstrap(): Promise<void> {
       return lines;
     });
     const physicsStats = physics.getRuntimeStats();
+    const actionPreset = getActionModulePreset(world.gameMode);
+    const activeGameplayPolicy = actionPreset
+      ? resolvePresetGameplayPolicy(actionPreset, store.peekProject())
+      : null;
 
     if (document.activeElement !== projectNameInput) {
       projectNameInput.value = world.metadata.name;
@@ -1152,14 +1519,21 @@ async function bootstrap(): Promise<void> {
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     scene.setSectorOverlay(sectorOverlay);
     overviewNode.innerHTML = [
+      renderOverviewRow("Project", store.peekProject().metadata.name),
       renderOverviewRow("World", world.metadata.name),
       renderOverviewRow("Mode", currentModuleDescriptor?.label ?? runtimeModule.id),
+      renderOverviewRow(
+        "Policy",
+        activeGameplayPolicy
+          ? `${activeGameplayPolicy.facing.mode} / ${activeGameplayPolicy.loot.transferMode} / ${activeGameplayPolicy.respawn.mode}`
+          : "n/a",
+      ),
       renderOverviewRow("Swap", worldSwapState),
       renderOverviewRow("Selection", selectedEntityId ?? selectedZone?.id ?? "none"),
       renderOverviewRow("Authoring", `${authoringMode} / ${authoringPrefabInput.value}`),
-      renderOverviewRow("Counts", `${world.entities.length} entities / ${world.zones.length} zones`),
+      renderOverviewRow("Counts", `${world.entities.length} entities / ${world.zones.length} zones / ${Object.keys(store.peekProject().worlds).length} worlds`),
     ].join("");
-    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
+    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nGameplay policy: ${activeGameplayPolicy ? JSON.stringify(activeGameplayPolicy, null, 2) : "n/a"}\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedZone,
@@ -1175,6 +1549,21 @@ async function bootstrap(): Promise<void> {
       sceneFilterInput.value,
     );
     assetStatusNode.textContent = formatAssetReports(assetReports);
+    const playtestEvaluation = playtestSession
+      ? evaluatePlaytest({
+          startedAt: playtestSession.startedAt,
+          endedAt: playtestSession.endedAt,
+          noteCount: playtestSession.notes.length,
+          recentEventCount: runtimeEvents.length,
+          ...summarizePlaytest(runtimeEvents),
+        })
+      : null;
+    latestIterationSuggestions = buildIterationSuggestions(
+      store.peekProject(),
+      world,
+      evaluation,
+      playtestEvaluation,
+    );
     playtestHud.innerHTML = renderHud(
       runtimeModule.getStatusLines?.() ?? [],
       runtimeFindings,
@@ -1193,10 +1582,12 @@ async function bootstrap(): Promise<void> {
         ...runtimeFindings,
         ...assetFindings,
         ...evaluation.findings.map((finding) => `[${finding.severity}] ${finding.message}`),
+        ...(playtestEvaluation?.findings.map((finding) => `[playtest:${finding.severity}] ${finding.message}`) ?? []),
         ...store.getCommandIssues(),
       ].join("\n") ||
       store.getCommandIssues().join("\n") ||
       "No command issues.\nUse Generate Flat Outpost for a procedural world seed, or load the authored survival slice.";
+    iterationSuggestionsNode.innerHTML = renderIterationSuggestions(latestIterationSuggestions);
     const renderStats = scene.getStats();
       runtimeStatsNode.textContent = [
         `Mode: ${world.gameMode}`,
@@ -1212,10 +1603,22 @@ async function bootstrap(): Promise<void> {
       `Eval warnings: ${evaluation.counts.warn}`,
       `Eval errors: ${evaluation.counts.error}`,
       `Module: ${runtimeModule.id}`,
+      `Project worlds: ${Object.keys(store.peekProject().worlds).length}`,
     ].join(" | ");
+    playtestStatusNode.textContent = formatPlaytestStatus(
+      playtestSession,
+      runtimeEvents,
+      store.peekProject().runtime.lastPlaytestReport,
+    );
     syncGameModeTemplate();
+    syncFeatureToggles();
+    syncGameplayPolicyControls();
+    syncProjectWorlds();
     syncAuthoringPrefabs();
     syncSelectedZoneInputs();
+    if (document.activeElement !== projectNameInput) {
+      projectNameInput.value = store.peekProject().metadata.name;
+    }
   };
 
   const rebuildWorld = (): void => {
@@ -1277,11 +1680,17 @@ async function bootstrap(): Promise<void> {
     requestedGameMode = template.gameMode;
     const world = stampWorldMode(template.buildWorld());
     const projectName = projectNameInput.value.trim();
+    const nextProject = projectFromWorld(world, {
+      id: `groundtruth.project.${template.id}`,
+      name: projectName.length > 0 ? projectName : template.label,
+      description: `${template.label}: ${template.summary}`,
+      templateId: template.id,
+      defaultGameMode: template.gameMode,
+    });
     if (projectName.length > 0) {
-      world.metadata.name = projectName;
-      world.metadata.description = `${template.label}: ${template.summary}`;
+      nextProject.worlds[nextProject.currentWorldId].metadata.name = projectName;
     }
-    store.setWorld(world);
+    store.setProject(nextProject);
     appendEvent(`Started project '${world.metadata.name}' from template '${template.label}'.`);
   };
 
@@ -1312,6 +1721,176 @@ async function bootstrap(): Promise<void> {
       })),
     );
     appendEvent("Requested scale-test outpost world.");
+  };
+
+  const startPlaytestSession = (): void => {
+    playtestSession = {
+      label: playtestLabelInput.value.trim() || "Playtest Session",
+      startedAt: new Date().toISOString(),
+      notes: [],
+    };
+    appendEvent(`Playtest session started: ${playtestSession.label}.`);
+    refreshSidebar();
+  };
+
+  const stopPlaytestSession = (): void => {
+    if (!playtestSession) {
+      appendEvent("Stop playtest skipped: no active session.");
+      return;
+    }
+    playtestSession.endedAt = new Date().toISOString();
+    appendEvent(`Playtest session stopped: ${playtestSession.label}.`);
+    refreshSidebar();
+  };
+
+  const addPlaytestNote = (): void => {
+    if (!playtestSession) {
+      appendEvent("Add note skipped: no active playtest session.");
+      return;
+    }
+    const note = playtestNoteInput.value.trim();
+    if (!note) {
+      appendEvent("Add note skipped: playtest note is empty.");
+      return;
+    }
+    playtestSession.notes.push(`${new Date().toLocaleTimeString()} | ${note}`);
+    playtestNoteInput.value = "";
+    appendEvent(`Playtest note added: ${note}`);
+    refreshSidebar();
+  };
+
+  const exportPlaytestReport = (): void => {
+    const world = store.getWorld();
+    const project = store.getProject();
+    const evaluation = evaluateWorld(world);
+    const playtestSummary = summarizePlaytest(runtimeEvents);
+    const playtestEvaluation = playtestSession
+      ? evaluatePlaytest({
+          startedAt: playtestSession.startedAt,
+          endedAt: playtestSession.endedAt,
+          noteCount: playtestSession.notes.length,
+          recentEventCount: runtimeEvents.length,
+          ...playtestSummary,
+        })
+      : null;
+    const report = {
+      capturedAt: new Date().toISOString(),
+      screenshot: scene.captureScreenshot(),
+      project,
+      world,
+      playtest: playtestSession,
+      evaluation,
+      recentEvents: [...runtimeEvents],
+      moduleId: runtimeModule.id,
+      summary: playtestSummary,
+      playtestEvaluation,
+    };
+    store.setLastPlaytestReport({
+      label: playtestSession?.label ?? "Playtest Session",
+      capturedAt: report.capturedAt,
+      noteCount: playtestSession?.notes.length ?? 0,
+      deathEvents: playtestSummary.deathEvents,
+      lootEvents: playtestSummary.lootEvents,
+      playerHitEvents: playtestSummary.playerHitEvents,
+    });
+    downloadJson(
+      `${project.metadata.id || world.metadata.id || "groundtruth"}.playtest.json`,
+      report,
+    );
+    screenshotPreview.src = report.screenshot;
+    screenshotPreview.classList.add("visible");
+    appendEvent(`Exported playtest report for '${project.metadata.name}'.`);
+  };
+
+  const executeAppCommands = (commands: AppCommand[]): void => {
+    for (const command of commands) {
+      if (isWorldCommand(command)) {
+        store.apply([command]);
+        continue;
+      }
+
+      switch (command.op) {
+        case "set_project_name":
+          store.updateProjectMetadata({
+            name: command.name,
+            description: command.description,
+          });
+          appendEvent(`Command set project name to '${command.name}'.`);
+          break;
+        case "set_project_feature":
+          store.setProjectFeatureEnabled(command.featureId, command.enabled);
+          appendEvent(`Command ${command.enabled ? "enabled" : "disabled"} project feature '${command.featureId}'.`);
+          break;
+        case "set_project_gameplay_policy":
+          store.setProjectGameplayPolicy(command.policyId, command.patch);
+          appendEvent(`Command updated gameplay policy '${command.policyId}'.`);
+          break;
+        case "save_project_world": {
+          const nextId = store.saveCurrentWorldCopy(command.name);
+          projectWorldInput.value = nextId;
+          syncProjectWorlds();
+          appendEvent(`Command saved project world '${nextId}'.`);
+          break;
+        }
+        case "open_project_world": {
+          const activated = store.activateProjectWorld(command.worldId);
+          if (!activated) {
+            issuesNode.textContent = `Project world '${command.worldId}' not found.`;
+            appendEvent(`Command failed to open missing project world '${command.worldId}'.`);
+            break;
+          }
+          requestedGameMode = store.peekWorld().gameMode;
+          appendEvent(`Command opened project world '${command.worldId}'.`);
+          break;
+        }
+        case "apply_world_stamp": {
+          const stampedWorld = applyWorldStamp(store.getWorld(), command.stampId);
+          store.setWorld(stampedWorld);
+          appendEvent(`Command applied world stamp '${command.stampId}'.`);
+          break;
+        }
+        case "start_project_template": {
+          const template = getProjectTemplate(command.templateId);
+          if (!template) {
+            issuesNode.textContent = `Project template '${command.templateId}' not found.`;
+            appendEvent(`Command failed to start missing template '${command.templateId}'.`);
+            break;
+          }
+          requestedGameMode = template.gameMode;
+          const world = stampWorldMode(template.buildWorld());
+          const nextProject = projectFromWorld(world, {
+            id: `groundtruth.project.${template.id}`,
+            name: command.projectName?.trim().length ? command.projectName.trim() : template.label,
+            description: `${template.label}: ${template.summary}`,
+            templateId: template.id,
+            defaultGameMode: template.gameMode,
+          });
+          if (command.projectName?.trim().length) {
+            nextProject.worlds[nextProject.currentWorldId].metadata.name = command.projectName.trim();
+          }
+          store.setProject(nextProject);
+          appendEvent(`Command started project from template '${template.label}'.`);
+          break;
+        }
+        case "start_world_recipe": {
+          const recipe = getWorldRecipe(command.recipeId);
+          if (!recipe) {
+            issuesNode.textContent = `World recipe '${command.recipeId}' not found.`;
+            appendEvent(`Command failed to start missing recipe '${command.recipeId}'.`);
+            break;
+          }
+          const project = recipe.buildProject(command.projectName);
+          requestedGameMode = project.metadata.defaultGameMode;
+          store.setProject(project);
+          appendEvent(`Command started project from recipe '${recipe.label}'.`);
+          break;
+        }
+        default: {
+          const unreachable: never = command;
+          issuesNode.textContent = `Unsupported app command: ${JSON.stringify(unreachable)}`;
+        }
+      }
+    }
   };
 
   const enqueueStressTest = (): void => {
@@ -1350,6 +1929,11 @@ async function bootstrap(): Promise<void> {
       pendingWorldRebuild = true;
       worldSwapState = "queued";
       appendEvent(`Store event: world -> ${store.peekWorld().metadata.id}`);
+      return;
+    }
+    if (event === "project") {
+      appendEvent(`Store event: project -> ${store.peekProject().metadata.id}`);
+      refreshSidebar();
       return;
     }
     appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? selectedZoneId ?? "none"}`);
@@ -1446,6 +2030,12 @@ async function bootstrap(): Promise<void> {
   });
 
   window.addEventListener("keydown", (event) => {
+    if (shouldCaptureGameplayKey(event, authoringMode, docsModal, canvasRoot)) {
+      event.preventDefault();
+      if (document.activeElement !== canvasRoot) {
+        canvasRoot.focus();
+      }
+    }
     if (event.key === "Escape" && !docsModal.classList.contains("hidden")) {
       setDocsOpen(false);
     }
@@ -1487,6 +2077,8 @@ async function bootstrap(): Promise<void> {
   });
 
   projectTemplateInput.addEventListener("change", syncProjectTemplates);
+  projectWorldInput.addEventListener("change", syncProjectWorlds);
+  worldRecipeInput.addEventListener("change", syncWorldRecipes);
   worldStampInput.addEventListener("change", syncWorldStamps);
 
   root.querySelector<HTMLButtonElement>("#mode-play")?.addEventListener("click", () => {
@@ -1568,6 +2160,60 @@ async function bootstrap(): Promise<void> {
     refreshSidebar();
   });
 
+  featureTogglesNode.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement)) {
+      return;
+    }
+    const featureId = target.dataset.featureToggle;
+    if (!featureId) {
+      return;
+    }
+    store.setProjectFeatureEnabled(featureId, target.checked);
+    appendEvent(`Project feature '${featureId}' ${target.checked ? "enabled" : "disabled"}.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#apply-gameplay-policy")?.addEventListener("click", () => {
+    applyGameplayPolicyFromInputs();
+  });
+
+  root.querySelector<HTMLButtonElement>("#reset-gameplay-policy")?.addEventListener("click", () => {
+    resetGameplayPolicyToPreset();
+  });
+
+  iterationSuggestionsNode.addEventListener("click", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) {
+      return;
+    }
+    const actionButton = target.closest<HTMLElement>("[data-iteration-action]");
+    if (!actionButton) {
+      return;
+    }
+    const suggestionId = actionButton.dataset.iterationSuggestion;
+    const action = actionButton.dataset.iterationAction;
+    if (!suggestionId || !action) {
+      return;
+    }
+    const suggestion = latestIterationSuggestions.find((item) => item.id === suggestionId);
+    if (!suggestion) {
+      appendEvent(`Iteration action skipped: missing suggestion '${suggestionId}'.`);
+      return;
+    }
+    if (action === "load") {
+      commandScript.value = JSON.stringify(suggestion.commands, null, 2);
+      activeSidebarPane = "build";
+      syncSidebarPane();
+      appendEvent(`Loaded iteration suggestion '${suggestion.title}' into command script.`);
+      return;
+    }
+    if (action === "apply") {
+      executeAppCommands(suggestion.commands);
+      store.recordAppliedSuggestion(suggestion.id, suggestion.title);
+      appendEvent(`Applied iteration suggestion '${suggestion.title}'.`);
+    }
+  });
+
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
   canvasRoot.addEventListener("pointermove", handleCanvasAuthoringMove);
   canvasRoot.addEventListener("pointerup", stopAuthoringDrag);
@@ -1585,8 +2231,73 @@ async function bootstrap(): Promise<void> {
     startProjectFromTemplate();
   });
 
+  root.querySelector<HTMLButtonElement>("#save-project-world")?.addEventListener("click", () => {
+    const nextId = store.saveCurrentWorldCopy();
+    projectWorldInput.value = nextId;
+    syncProjectWorlds();
+    appendEvent(`Saved current world copy '${nextId}' into project.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#open-project-world")?.addEventListener("click", () => {
+    const worldId = projectWorldInput.value;
+    if (!worldId) {
+      appendEvent("Open project world skipped: no project world selected.");
+      return;
+    }
+    const activated = store.activateProjectWorld(worldId);
+    if (!activated) {
+      appendEvent(`Open project world skipped: '${worldId}' is missing.`);
+      return;
+    }
+    requestedGameMode = store.peekWorld().gameMode;
+    appendEvent(`Activated project world '${worldId}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#export-project")?.addEventListener("click", () => {
+    const screenshot = scene.captureScreenshot();
+    const projectExport = createProjectExportEnvelope(store.getProject(), screenshot);
+    downloadJson(
+      `${projectExport.project.metadata.id || "groundtruth-project"}.project.json`,
+      projectExport,
+    );
+    if (projectExport.screenshot) {
+      screenshotPreview.src = projectExport.screenshot;
+    }
+    screenshotPreview.classList.add("visible");
+    appendEvent(`Exported project '${projectExport.project.metadata.name}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#export-playable")?.addEventListener("click", () => {
+    const playableBuild = createPlayableBuildDocument(store.getProject());
+    downloadJson(
+      `${playableBuild.project.metadata.id || "groundtruth-game"}.playable.json`,
+      playableBuild,
+    );
+    appendEvent(`Exported playable build '${playableBuild.manifest.title}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#import-project")?.addEventListener("click", () => {
+    projectFileInput.click();
+  });
+
+  root.querySelector<HTMLButtonElement>("#import-playable")?.addEventListener("click", () => {
+    playableFileInput.click();
+  });
+
   root.querySelector<HTMLButtonElement>("#apply-world-stamp")?.addEventListener("click", () => {
     applySelectedWorldStamp();
+  });
+
+  root.querySelector<HTMLButtonElement>("#start-world-recipe")?.addEventListener("click", () => {
+    const recipe = getWorldRecipe(worldRecipeInput.value);
+    if (!recipe) {
+      appendEvent("Recipe start skipped: no recipe selected.");
+      return;
+    }
+    const project = recipe.buildProject(projectNameInput.value.trim() || undefined);
+    requestedGameMode = project.metadata.defaultGameMode;
+    store.setProject(project);
+    appendEvent(`Started project from recipe '${recipe.label}'.`);
   });
 
   root.querySelector<HTMLButtonElement>("#load-scale-test")?.addEventListener("click", () => {
@@ -1633,7 +2344,7 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
     try {
-      store.apply(parseCommandScript(commandScript.value));
+      executeAppCommands(parseCommandScript(commandScript.value));
     } catch (error) {
       issuesNode.textContent =
         error instanceof Error ? error.message : String(error);
@@ -1645,10 +2356,27 @@ async function bootstrap(): Promise<void> {
     screenshotPreview.classList.add("visible");
   });
 
+  root.querySelector<HTMLButtonElement>("#start-playtest")?.addEventListener("click", () => {
+    startPlaytestSession();
+  });
+
+  root.querySelector<HTMLButtonElement>("#stop-playtest")?.addEventListener("click", () => {
+    stopPlaytestSession();
+  });
+
+  root.querySelector<HTMLButtonElement>("#add-playtest-note")?.addEventListener("click", () => {
+    addPlaytestNote();
+  });
+
+  root.querySelector<HTMLButtonElement>("#export-playtest-report")?.addEventListener("click", () => {
+    exportPlaytestReport();
+  });
+
   root.querySelector<HTMLButtonElement>("#export-world")?.addEventListener("click", () => {
     const snapshot = {
       capturedAt: new Date().toISOString(),
       screenshot: scene.captureScreenshot(),
+      project: store.getProject(),
       world: store.getWorld(),
     };
     downloadJson(
@@ -1671,13 +2399,18 @@ async function bootstrap(): Promise<void> {
 
     try {
       const parsed = JSON.parse(await file.text()) as {
+        project?: ProjectDocument;
         world?: ReturnType<WorldStore["getWorld"]>;
         screenshot?: string;
       };
-      if (!parsed.world) {
-        throw new Error("Snapshot JSON does not contain a world document.");
+      const importedProject = parsed.project ? resolveImportedProject(parsed.project) : null;
+      if (importedProject) {
+        store.setProject(importedProject);
+      } else if (parsed.world) {
+        store.setWorld(parsed.world);
+      } else {
+        throw new Error("Snapshot JSON does not contain a project or world document.");
       }
-      store.setWorld(parsed.world);
       if (parsed.screenshot) {
         screenshotPreview.src = parsed.screenshot;
         screenshotPreview.classList.add("visible");
@@ -1687,6 +2420,63 @@ async function bootstrap(): Promise<void> {
     } finally {
       snapshotFileInput.value = "";
     }
+  });
+
+  projectFileInput.addEventListener("change", async () => {
+    const file = projectFileInput.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      const project = resolveImportedProject(parsed);
+      if (!project) {
+        throw new Error("Project JSON does not contain a valid project document.");
+      }
+      store.setProject(project);
+      requestedGameMode = project.metadata.defaultGameMode;
+      if (typeof parsed === "object" && parsed && "screenshot" in parsed && typeof (parsed as { screenshot?: unknown }).screenshot === "string") {
+        screenshotPreview.src = (parsed as { screenshot: string }).screenshot;
+        screenshotPreview.classList.add("visible");
+      }
+      appendEvent(`Imported project '${project.metadata.name}'.`);
+    } catch (error) {
+      issuesNode.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+      projectFileInput.value = "";
+    }
+  });
+
+  playableFileInput.addEventListener("change", async () => {
+    const file = playableFileInput.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await file.text()) as unknown;
+      if (!isPlayableBuildDocument(parsed)) {
+        throw new Error("Playable build JSON does not contain a valid Groundtruth playable build.");
+      }
+      store.setProject(parsed.project);
+      requestedGameMode = parsed.project.metadata.defaultGameMode;
+      appendEvent(`Imported playable build '${parsed.manifest.title}' as an editable project.`);
+    } catch (error) {
+      issuesNode.textContent = error instanceof Error ? error.message : String(error);
+    } finally {
+      playableFileInput.value = "";
+    }
+  });
+
+  projectNameInput.addEventListener("change", () => {
+    const nextName = projectNameInput.value.trim();
+    if (nextName.length === 0) {
+      projectNameInput.value = store.peekProject().metadata.name;
+      return;
+    }
+    store.updateProjectMetadata({ name: nextName });
+    appendEvent(`Project renamed to '${nextName}'.`);
   });
 
   const syncDebugOptions = (): void => {
@@ -1710,8 +2500,11 @@ async function bootstrap(): Promise<void> {
   syncSidebarPane();
   syncGameModeTemplate();
   syncProjectTemplates();
+  syncProjectWorlds();
+  syncWorldRecipes();
   syncWorldStamps();
   syncAuthoringPrefabs();
+  syncGameplayPolicyControls();
   syncAuthoringMode();
   syncModelTuningInputs(true);
   syncSelectedTransformInputs(true);
@@ -1761,6 +2554,42 @@ async function bootstrap(): Promise<void> {
 
 void bootstrap();
 
+interface GroundtruthBootConfig {
+  mode?: "editor" | "player";
+  manifest?: string;
+}
+
+function readBootConfig(): GroundtruthBootConfig {
+  const bootWindow = window as Window & typeof globalThis & {
+    __GROUNDTRUTH_BOOT__?: GroundtruthBootConfig;
+  };
+  const search = new URLSearchParams(window.location.search);
+  return {
+    mode: search.get("mode") === "player"
+      ? "player"
+      : bootWindow.__GROUNDTRUTH_BOOT__?.mode ?? "editor",
+    manifest: search.get("manifest")
+      ?? bootWindow.__GROUNDTRUTH_BOOT__?.manifest,
+  };
+}
+
+async function loadBootProject(
+  bootConfig: GroundtruthBootConfig,
+): Promise<ProjectDocument | null> {
+  if (bootConfig.mode !== "player" || !bootConfig.manifest) {
+    return null;
+  }
+  const response = await fetch(bootConfig.manifest, { cache: "no-store" });
+  if (!response.ok) {
+    throw new Error(`Failed to load playable build manifest '${bootConfig.manifest}'.`);
+  }
+  const parsed = await response.json();
+  if (!isPlayableBuildDocument(parsed)) {
+    throw new Error(`Boot manifest '${bootConfig.manifest}' is not a valid Groundtruth playable build.`);
+  }
+  return parsed.project;
+}
+
 function applyGameModeTuning(world: WorldDocument): WorldDocument {
   const nextWorld: WorldDocument = JSON.parse(JSON.stringify(world)) as WorldDocument;
   const player = nextWorld.entities.find((entity) => entity.id === "player");
@@ -1782,7 +2611,7 @@ function applyGameModeTuning(world: WorldDocument): WorldDocument {
 function resolveCameraRigForMode(gameMode: GameMode) {
   const actionPreset = getActionModulePreset(gameMode);
   if (actionPreset) {
-    return actionPreset.cameraRig;
+    return policyCameraRig(actionPreset);
   }
 
   switch (gameMode) {
@@ -2189,6 +3018,171 @@ function renderOverviewRow(label: string, value: string): string {
       <span class="overview-value">${escapeHtml(value)}</span>
     </div>
   `;
+}
+
+function renderIterationSuggestions(suggestions: IterationSuggestion[]): string {
+  if (suggestions.length === 0) {
+    return '<div class="inventory-empty">No iteration suggestions available.</div>';
+  }
+
+  return suggestions
+    .map((suggestion) => `
+      <div class="iteration-card">
+        <div class="iteration-copy">
+          <div class="iteration-title">${escapeHtml(suggestion.title)}</div>
+          <div class="iteration-summary">${escapeHtml(suggestion.summary)}</div>
+          <div class="iteration-meta">
+            <span>Applied ${suggestion.appliedCount ?? 0} time${(suggestion.appliedCount ?? 0) === 1 ? "" : "s"}</span>
+            ${suggestion.appliedRecently ? '<span class="iteration-badge">Recently applied</span>' : ""}
+          </div>
+        </div>
+        <div class="iteration-actions">
+          <button
+            type="button"
+            class="secondary"
+            data-iteration-action="load"
+            data-iteration-suggestion="${escapeHtml(suggestion.id)}"
+          >
+            Load To Script
+          </button>
+          <button
+            type="button"
+            data-iteration-action="apply"
+            data-iteration-suggestion="${escapeHtml(suggestion.id)}"
+          >
+            Apply Now
+          </button>
+        </div>
+      </div>
+    `)
+    .join("");
+}
+
+interface PlaytestSession {
+  label: string;
+  startedAt: string;
+  endedAt?: string;
+  notes: string[];
+}
+
+function formatPlaytestStatus(
+  session: PlaytestSession | null,
+  recentEvents: string[],
+  lastReport?: {
+    label: string;
+    capturedAt: string;
+    noteCount: number;
+    deathEvents: number;
+    lootEvents: number;
+    playerHitEvents: number;
+  },
+): string {
+  if (!session) {
+    if (!lastReport) {
+      return "No active playtest session.\nUse Start Session to begin capturing notes and exportable context.";
+    }
+    return [
+      "No active playtest session.",
+      `Last exported: ${lastReport.label} @ ${lastReport.capturedAt}`,
+      `Deaths: ${lastReport.deathEvents}`,
+      `Loot events: ${lastReport.lootEvents}`,
+      `Player hit events: ${lastReport.playerHitEvents}`,
+      `Notes captured: ${lastReport.noteCount}`,
+      "Use Start Session to capture a fresh run and compare it against this baseline.",
+    ].join("\n");
+  }
+  const summary = summarizePlaytest(recentEvents);
+  const evaluation = evaluatePlaytest({
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    noteCount: session.notes.length,
+    recentEventCount: recentEvents.length,
+    ...summary,
+  });
+  return [
+    `Label: ${session.label}`,
+    `Started: ${session.startedAt}`,
+    `Ended: ${session.endedAt ?? "active"}`,
+    `Notes: ${session.notes.length}`,
+    `Deaths seen: ${summary.deathEvents}`,
+    `Loot events: ${summary.lootEvents}`,
+    `Player hit events: ${summary.playerHitEvents}`,
+    `Eval: ${evaluation.counts.warn} warn / ${evaluation.counts.info} info`,
+    ...(lastReport
+      ? [
+          `Compared to '${lastReport.label}': deaths ${formatDelta(summary.deathEvents - lastReport.deathEvents)}, loot ${formatDelta(summary.lootEvents - lastReport.lootEvents)}, hits ${formatDelta(summary.playerHitEvents - lastReport.playerHitEvents)}`,
+        ]
+      : []),
+    ...(evaluation.findings.slice(0, 4).map((finding) => `[${finding.severity}] ${finding.message}`)),
+    ...(session.notes.length > 0 ? ["", ...session.notes.slice(-6)] : []),
+  ].join("\n");
+}
+
+function summarizePlaytest(recentEvents: string[]) {
+  return {
+    deathEvents: recentEvents.filter((line) => line.toLowerCase().includes("died")).length,
+    lootEvents: recentEvents.filter((line) => line.toLowerCase().includes("loot")).length,
+    playerHitEvents: recentEvents.filter((line) => line.toLowerCase().includes("hit player")).length,
+  };
+}
+
+function formatDelta(value: number): string {
+  if (value > 0) {
+    return `+${value}`;
+  }
+  if (value < 0) {
+    return `${value}`;
+  }
+  return "0";
+}
+
+function shouldCaptureGameplayKey(
+  event: KeyboardEvent,
+  authoringMode: string,
+  docsModal: HTMLElement,
+  canvasRoot: HTMLElement,
+): boolean {
+  if (authoringMode !== "play") {
+    return false;
+  }
+  if (!docsModal.classList.contains("hidden")) {
+    return false;
+  }
+
+  const target = event.target as HTMLElement | null;
+  if (target) {
+    const tag = target.tagName;
+    if (
+      tag === "INPUT" ||
+      tag === "TEXTAREA" ||
+      tag === "SELECT" ||
+      target.isContentEditable
+    ) {
+      return false;
+    }
+  }
+
+  const gameplayKeys = new Set([
+    "Space",
+    "KeyW",
+    "KeyA",
+    "KeyS",
+    "KeyD",
+    "KeyE",
+    "KeyF",
+    "ShiftLeft",
+    "ShiftRight",
+    "ArrowUp",
+    "ArrowDown",
+    "ArrowLeft",
+    "ArrowRight",
+  ]);
+
+  if (!gameplayKeys.has(event.code)) {
+    return false;
+  }
+
+  return document.activeElement === canvasRoot || !!target;
 }
 
 function renderHelpSection(section: HelpSection): string {

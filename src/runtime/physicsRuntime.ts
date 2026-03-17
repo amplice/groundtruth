@@ -200,6 +200,57 @@ export class PhysicsRuntime {
     return result;
   }
 
+  holdCharacter(entityId: string): CharacterMoveResult | null {
+    const body = this.bodyMap.get(entityId);
+    const collider = this.colliderMap.get(entityId);
+    if (!body || !collider || !body.isKinematic() || !this.characterController) {
+      return null;
+    }
+
+    const current = body.translation();
+    const position = {
+      x: current.x,
+      y: current.y,
+      z: current.z,
+    };
+    body.setNextKinematicTranslation(position);
+    body.setTranslation(position, false);
+    this.world.propagateModifiedBodyPositionsToColliders();
+
+    const result = {
+      position,
+      grounded: this.debugState.get(entityId)?.grounded ?? false,
+      collisions: this.debugState.get(entityId)?.collisions ?? 0,
+    };
+    this.debugState.set(entityId, {
+      ...result,
+      desiredDelta: { x: 0, y: 0, z: 0 },
+    });
+    return result;
+  }
+
+  teleportCharacter(entityId: string, position: Vec3): CharacterMoveResult | null {
+    const body = this.bodyMap.get(entityId);
+    if (!body || !body.isKinematic()) {
+      return null;
+    }
+
+    body.setNextKinematicTranslation(position);
+    body.setTranslation(position, false);
+    this.world.propagateModifiedBodyPositionsToColliders();
+
+    const result = {
+      position: { ...position },
+      grounded: false,
+      collisions: 0,
+    };
+    this.debugState.set(entityId, {
+      ...result,
+      desiredDelta: { x: 0, y: 0, z: 0 },
+    });
+    return result;
+  }
+
   private makeColliderDesc(
     entity: ReturnType<typeof resolveEntity>,
     physics: NonNullable<ReturnType<typeof resolveEntity>["components"]["physics"]>,
@@ -258,17 +309,6 @@ export class PhysicsRuntime {
       if (resource.framesUntilFree > 0) {
         pending.push(resource);
         continue;
-      }
-
-      try {
-        resource.controller?.free();
-        resource.world.free();
-      } catch (error) {
-        console.warn("Retrying deferred Rapier world cleanup.", error);
-        pending.push({
-          ...resource,
-          framesUntilFree: 4,
-        });
       }
     }
 

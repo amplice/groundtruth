@@ -2,6 +2,8 @@
 
 This guide is for an AI agent that needs to build or modify a game inside Groundtruth.
 
+Before making architecture changes, also read [ENGINE_RULEBOOK.md](./ENGINE_RULEBOOK.md).
+
 Groundtruth should be treated as a semantic runtime/editor. The normal path is:
 
 1. Choose the closest implemented game mode.
@@ -17,6 +19,9 @@ Groundtruth is not primarily a raw three.js code-editing task surface.
 
 It is a browser runtime/editor with:
 
+- projects
+- project-level feature toggles
+- project-level gameplay policy overrides
 - game modes
 - project templates
 - procedural generators
@@ -25,6 +30,17 @@ It is a browser runtime/editor with:
 - in-world authoring
 - evaluation and debug tools
 - command-script driven world mutation
+
+## Before Editing Engine Code
+
+Use this responsibility order:
+
+1. project
+2. preset / policy
+3. feature
+4. engine core
+
+If a change is specific to one game, keep it in the project unless that becomes untenable.
 
 ## Implemented Modes
 
@@ -60,6 +76,16 @@ Other listed modes are labels or future intent, not full implementations yet.
    - `Inspect > Assets`
    - `Runtime > Events`
 8. Export a snapshot when the result or failure case is worth preserving.
+9. Export the whole project when the project structure itself is worth preserving, not just the current world state.
+10. Use `Build > Features` when the project needs capability-level changes such as disabling hostile AI, combat, interaction, combat feedback, or sector population.
+11. Use `Build > Gameplay Policy` when the module is correct but the rules need to change, such as facing mode, respawn behavior, loot behavior, or camera feel.
+12. That same policy layer now also covers attack targeting, attack movement locking, and hostile aggro/leash tuning for the action-family modules.
+13. Use `Build > Recipes` when a request maps cleanly to a coherent precomposed slice rather than a raw template or generator.
+14. Use the Runtime playtest session/report flow when you want a structured artifact of a run, not just a snapshot.
+15. Read the derived playtest findings as another evaluation surface, not just the raw event log.
+16. Use iteration suggestions when you want Groundtruth to propose concrete follow-up commands from evaluation and playtest outcomes.
+17. Read suggestion history before applying a suggestion again; Groundtruth now tracks how often each suggestion was applied in the current world and marks recently repeated suggestions.
+18. Export playtest reports at meaningful checkpoints; Groundtruth stores the last exported playtest summary and compares the current session against that baseline.
 
 ## Mode Selection Guidance
 
@@ -90,6 +116,22 @@ Current templates:
 
 Templates automatically switch the active game mode to the correct one.
 
+Project export/import now exists separately from snapshot export/import. Prefer project export when you want to preserve project metadata and future project structure.
+
+Projects can now store multiple project worlds. Use that when you want alternate layouts or variants inside the same project instead of exporting separate single-world snapshots for everything.
+
+Playable export is now a separate concept from editable project export:
+
+- editable project export: preserve authoring state for Groundtruth
+- playable build export: preserve a player-facing package seed
+
+To package a standalone folder after exporting a project or playable build JSON:
+
+```bash
+npm run build
+npm run export:playable -- --project path/to/project-or-playable.json --out path/to/output-folder
+```
+
 ## Generators
 
 - `Generate Flat Outpost`
@@ -119,12 +161,34 @@ Recommended pattern:
 2. Apply one or two stamps.
 3. Use authoring tools to clean up placement, size, and zones.
 
+## Recipes
+
+Use recipes when you want a stronger starting point than a plain template or generator.
+
+Current recipes:
+
+- `survival_town`
+- `first_person_sweep`
+- `top_down_hotzone`
+- `platformer_gauntlet`
+
+Recipes combine:
+
+- a game mode
+- a base generated world
+- one or more stamps
+- initial project-level feature defaults
+
 ## Command Script Guidance
 
 The command script is the best repeatable mutation surface for another AI.
 
 Prefer it for:
 
+- setting project metadata
+- enabling or disabling project features
+- starting a project from a template
+- saving or reopening project worlds
 - changing game mode
 - renaming worlds
 - generating a base world
@@ -136,22 +200,18 @@ Example:
 
 ```json
 [
-  { "op": "set_world_name", "name": "Town Patrol Test" },
-  { "op": "set_game_mode", "gameMode": "first_person" },
-  { "op": "generate_town_world" },
+  { "op": "set_project_name", "name": "Town Patrol Test" },
   {
-    "op": "spawn_entity",
-    "entity": {
-      "id": "zombie.spawned.1",
-      "name": "Spawned Zombie",
-      "prefabId": "zombie_basic",
-      "transform": {
-        "position": { "x": 6, "y": 1.1, "z": -4 },
-        "rotation": { "x": 0, "y": 0, "z": 0 },
-        "scale": { "x": 1, "y": 1, "z": 1 }
-      }
+    "op": "set_project_gameplay_policy",
+    "policyId": "first_person_action",
+    "patch": {
+      "loot": { "emptyContainerMode": "persist" },
+      "respawn": { "mode": "disabled" }
     }
-  }
+  },
+  { "op": "start_world_recipe", "recipeId": "first_person_sweep" },
+  { "op": "set_project_feature", "featureId": "sector_population", "enabled": false },
+  { "op": "save_project_world", "name": "Town Patrol Variant A" }
 ]
 ```
 
@@ -175,6 +235,15 @@ Useful signals:
 - asset/clip load failures
 - runtime findings
 - suspicious event patterns
+
+When running iterative repair loops:
+
+1. Start a playtest session.
+2. Reproduce the problem.
+3. Export a playtest report to establish a baseline.
+4. Review `Runtime > Iteration`.
+5. Prefer suggestions that have not already been applied repeatedly unless you are intentionally A/B testing.
+6. Apply one suggestion, regenerate or replay as needed, then compare the new playtest session against the last exported baseline.
 
 ## Scale Guidance
 

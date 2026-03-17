@@ -1,4 +1,9 @@
 import {
+  ThirdPersonActionGameplayPolicy,
+  ThirdPersonFacingMode,
+  cloneThirdPersonActionGameplayPolicy,
+} from "../core/policies";
+import {
   ActionDefinition,
   AnimationComponent,
   AnimationLoopMode,
@@ -12,6 +17,8 @@ import {
   ActionModulePreset,
   FIRST_PERSON_ACTION_PRESET,
   PLATFORMER_ACTION_PRESET,
+  resolvePresetGameplayPolicy,
+  resolvePresetFeatureIds,
   THIRD_PERSON_ACTION_PRESET,
 } from "./actionModulePresets";
 import { createRuntimeFeatures } from "./runtimeFeatureRegistry";
@@ -67,11 +74,14 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
 
   protected readonly groundedState = new Map<string, boolean>();
 
-  protected readonly features: RuntimeFeature[];
+  protected features: RuntimeFeature[];
+
+  protected gameplayPolicy: ThirdPersonActionGameplayPolicy;
 
   constructor(protected readonly preset: ActionModulePreset) {
     this.id = preset.id;
-    this.features = createRuntimeFeatures(preset.featureIds ?? []);
+    this.features = [];
+    this.gameplayPolicy = cloneThirdPersonActionGameplayPolicy(preset.gameplayPolicy);
   }
 
   onWorldRebuilt(world: ReturnType<ModuleContext["store"]["peekWorld"]>, context: ModuleContext): void {
@@ -91,6 +101,8 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       throttled: 0,
       sleeping: 0,
     };
+    this.gameplayPolicy = resolvePresetGameplayPolicy(this.preset, context.store.peekProject());
+    this.features = createRuntimeFeatures(resolvePresetFeatureIds(this.preset, context.store.peekProject()));
     context.scene.setPlayerDangerLevel(0);
     for (const feature of this.features) {
       feature.onWorldRebuilt?.(context.store.peekWorld(), context, this);
@@ -154,7 +166,23 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       this.lockAnimationState(player.id, deathAction.state, Number.POSITIVE_INFINITY);
       this.syncAction(context, player.id, deathAction);
       this.updateHostiles(dtSeconds, context, player.id);
-      this.updateStatus(context, resolvedPlayer, "You are down. Reset or generate a new world to continue.");
+      const respawnKey = this.getRespawnKey();
+      if (
+        this.gameplayPolicy.respawn.mode === "manual"
+        && respawnKey
+        && context.input.consumePress(respawnKey)
+      ) {
+        this.respawnPlayer(context, player.id);
+        this.pushEvent("Player respawned at the nearest safe point.");
+        const respawnedPlayer = resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, player.id));
+        this.updateStatus(context, respawnedPlayer, "Respawned. Re-enter the town and re-engage.");
+        this.updateDebugFindings(context, respawnedPlayer);
+        return;
+      }
+      const deathLine = this.gameplayPolicy.respawn.mode === "manual" && respawnKey
+        ? `You are down. Press ${friendlyKeyLabel(respawnKey)} to respawn.`
+        : "You are down.";
+      this.updateStatus(context, resolvedPlayer, deathLine);
       this.updateDebugFindings(context, resolvedPlayer);
       return;
     }
@@ -265,7 +293,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
         break;
     }
 
-    const activeCameraRig = this.resolveCameraRig(cameraRig);
+    const activeCameraRig = this.resolvePlayerCameraRig(cameraRig);
     const axes = context.input.movementAxes();
     const length = Math.hypot(axes.x, axes.z);
     const resolvedPlayer = resolveEntity(context.store.peekWorld(), this.mustFindEntity(context, playerId));
@@ -274,13 +302,23 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
       : null;
     if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
+      context.physics.holdCharacter(playerId);
       this.syncAnimationState(context, playerId, "idle");
+      const facingYaw = this.resolveFacingYaw(context, playerId);
+      if (facingYaw !== null) {
+        context.store.updateEntityTransform(playerId, {
+          rotation: { x: 0, y: facingYaw, z: 0 },
+        });
+        context.scene.updateEntityTransform(playerId, {
+          rotation: { x: 0, y: facingYaw, z: 0 },
+        });
+      }
       context.scene.updateFollowCamera(playerId, activeCameraRig);
       return;
     }
 
     const speed = axes.sprint
-      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.5)
+      ? sprintSpeed ?? moveSpeed * this.gameplayPolicy.controls.sprintMultiplier
       : moveSpeed;
     const basis = context.scene.getMovementBasis();
     const dirX = (basis.right.x * axes.x + basis.forward.x * axes.z) / length;
@@ -297,7 +335,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     this.syncAnimationState(context, playerId, axes.sprint ? "run" : "walk");
     const rotation = {
       x: 0,
-      y: Math.atan2(dirX, dirZ),
+      y: this.resolveFacingYaw(context, playerId, dirX, dirZ) ?? Math.atan2(dirX, dirZ),
       z: 0,
     };
     context.store.updateEntityTransform(playerId, {
@@ -325,16 +363,17 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const lockedAction = currentLock
       ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
       : null;
-    const cameraRig = this.resolveCameraRig(resolvedPlayer.components.cameraRig);
+    const cameraRig = this.resolvePlayerCameraRig(resolvedPlayer.components.cameraRig);
 
     if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
+      context.physics.holdCharacter(playerId);
       this.syncAnimationState(context, playerId, "idle");
       context.scene.updateFollowCamera(playerId, cameraRig);
       return;
     }
 
     const speed = axes.sprint
-      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.45)
+      ? sprintSpeed ?? moveSpeed * this.gameplayPolicy.controls.sprintMultiplier
       : moveSpeed;
     const basis = context.scene.getMovementBasis();
     const dirX = (basis.right.x * axes.x + basis.forward.x * axes.z) / length;
@@ -465,6 +504,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       );
 
       if (activityTier === "sleeping") {
+        context.physics.holdCharacter(entity.id);
         this.syncAnimationState(context, entity.id, "idle");
         this.recordHostileMotion(entity.id, resolved.transform.position, false, dtSeconds);
         continue;
@@ -487,6 +527,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       }
 
       if (distance > aggroRadius || (lockedAction?.lockMovement ?? false)) {
+        context.physics.holdCharacter(entity.id);
         this.syncAnimationState(context, entity.id, "idle");
         this.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
@@ -536,16 +577,17 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const lockedAction = currentLock
       ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
       : null;
-    const cameraRig = this.resolveCameraRig();
+    const cameraRig = this.resolvePlayerCameraRig();
 
     if (length <= 0.001 || (lockedAction?.lockMovement ?? false)) {
+      context.physics.holdCharacter(playerId);
       this.syncAnimationState(context, playerId, "idle");
       context.scene.updateFollowCamera(playerId, cameraRig);
       return;
     }
 
     const speed = axes.sprint
-      ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.4)
+      ? sprintSpeed ?? moveSpeed * this.gameplayPolicy.controls.sprintMultiplier
       : moveSpeed;
     const dirX = axes.x / length;
     const dirZ = axes.z / length;
@@ -589,8 +631,8 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const lockedAction = currentLock
       ? this.resolveActionDefinition(resolvedPlayer, currentLock.state)
       : null;
-    const jumpPressed = this.preset.jumpKey
-      ? context.input.consumePress(this.preset.jumpKey)
+    const jumpPressed = this.gameplayPolicy.controls.jumpKey
+      ? context.input.consumePress(this.gameplayPolicy.controls.jumpKey)
       : false;
     const wasGrounded = this.groundedState.get(playerId) ?? false;
     let velocityY = this.verticalVelocity.get(playerId) ?? 0;
@@ -605,14 +647,14 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       ? 0
       : (axes.x / Math.abs(axes.x))
         * (axes.sprint
-          ? sprintSpeed ?? moveSpeed * (this.preset.sprintMultiplier ?? 1.3)
+          ? sprintSpeed ?? moveSpeed * this.gameplayPolicy.controls.sprintMultiplier
           : moveSpeed);
     const movement = context.physics.moveCharacter(playerId, {
       x: moveX * dtSeconds,
       y: (velocityY * dtSeconds) + (wasGrounded && velocityY <= 0 ? -0.04 : 0),
       z: 0,
     });
-    const cameraRig = this.resolveCameraRig();
+    const cameraRig = this.resolvePlayerCameraRig();
 
     if (!movement) {
       context.scene.updateFollowCamera(playerId, cameraRig);
@@ -714,6 +756,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       this.hostileActivityCounts[activityTier] += 1;
 
       if (activityTier === "sleeping" || verticalGap > 3.5 || this.isDead(resolvedPlayer)) {
+        context.physics.holdCharacter(entity.id);
         this.syncAnimationState(context, entity.id, "idle");
         this.recordHostileMotion(entity.id, resolved.transform.position, false, dtSeconds);
         continue;
@@ -747,6 +790,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
         ? this.resolveActionDefinition(resolved, currentLock.state)
         : null;
       if ((lockedAction?.lockMovement ?? false) || distance > aggroRadius) {
+        context.physics.holdCharacter(entity.id);
         this.syncAnimationState(context, entity.id, "idle");
         this.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
@@ -1134,12 +1178,21 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   }
 
   resolveActionDefinition(entity: ResolvedEntity, actionId: string): ActionDefinition {
-    return entity.components.actions?.[actionId] ?? {
+    const resolved = entity.components.actions?.[actionId] ?? {
       state: actionId,
       loop: this.defaultLoopModeForState(actionId),
       speed: 1,
       fadeSeconds: 0.08,
       fallbackSeconds: 0.6,
+    };
+    if (resolved.lockMovement !== undefined) {
+      return resolved;
+    }
+    return {
+      ...resolved,
+      lockMovement: actionId === "attack"
+        ? this.gameplayPolicy.combat.movementLockOnAttack
+        : resolved.lockMovement,
     };
   }
 
@@ -1215,7 +1268,105 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   protected resolveCameraRig(
     entityRig?: ResolvedEntity["components"]["cameraRig"],
   ): CameraRigComponent {
-    return entityRig ?? this.preset.cameraRig;
+    return entityRig ?? {
+      mode: this.gameplayPolicy.camera.mode,
+      distance: this.gameplayPolicy.camera.distance,
+      pitch: this.gameplayPolicy.camera.pitch,
+      yaw: this.gameplayPolicy.camera.yaw,
+    };
+  }
+
+  protected resolvePlayerCameraRig(
+    entityRig?: ResolvedEntity["components"]["cameraRig"],
+  ): CameraRigComponent {
+    const resolvedRig = this.resolveCameraRig(entityRig);
+    return {
+      ...resolvedRig,
+      mode: this.gameplayPolicy.camera.mode,
+      distance: this.gameplayPolicy.camera.distance,
+      pitch: this.gameplayPolicy.camera.pitch,
+      yaw: this.gameplayPolicy.camera.yaw,
+    };
+  }
+
+  protected resolvePointerAimYaw(
+    context: ModuleContext,
+    playerId: string,
+  ): number | null {
+    if (this.preset.playerMovementMode !== "third_person") {
+      return null;
+    }
+    const aimPoint = context.scene.getPointerGroundPoint();
+    if (!aimPoint) {
+      return null;
+    }
+    const player = this.resolveEntityById(context, playerId);
+    const dx = aimPoint.x - player.transform.position.x;
+    const dz = aimPoint.z - player.transform.position.z;
+    if (Math.hypot(dx, dz) < 0.35) {
+      return null;
+    }
+    return Math.atan2(dx, dz);
+  }
+
+  protected resolveCameraForwardYaw(context: ModuleContext): number {
+    const basis = context.scene.getMovementBasis();
+    return Math.atan2(basis.forward.x, basis.forward.z);
+  }
+
+  protected resolveFacingYaw(
+    context: ModuleContext,
+    playerId: string,
+    moveDirX?: number,
+    moveDirZ?: number,
+  ): number | null {
+    const facingMode = moveDirX !== undefined && moveDirZ !== undefined
+      ? this.gameplayPolicy.facing.mode
+      : this.gameplayPolicy.facing.idleMode;
+    switch (facingMode) {
+      case "cursor_aim":
+        return this.resolvePointerAimYaw(context, playerId);
+      case "camera_forward":
+        return this.resolveCameraForwardYaw(context);
+      case "move_vector":
+        if (moveDirX === undefined || moveDirZ === undefined) {
+          return null;
+        }
+        return Math.atan2(moveDirX, moveDirZ);
+      case "keep_last":
+        return null;
+      default:
+        return null;
+    }
+  }
+
+  protected respawnPlayer(context: ModuleContext, playerId: string): void {
+    const world = context.store.peekWorld();
+    const player = this.resolveEntityById(context, playerId);
+    const respawnPosition = this.resolveRespawnPosition(world);
+    const health = player.components.health;
+    if (health) {
+      context.store.updateEntityComponents(playerId, {
+        health: {
+          ...health,
+          current: health.max,
+        },
+      });
+      context.scene.updateEntityHealth(playerId, health.max, health.max);
+    }
+    this.cooldowns.delete(playerId);
+    this.animationLocks.delete(playerId);
+    context.store.updateEntityTransform(playerId, {
+      position: respawnPosition,
+      rotation: { x: 0, y: 0, z: 0 },
+    });
+    context.scene.updateEntityTransform(playerId, {
+      position: respawnPosition,
+      rotation: { x: 0, y: 0, z: 0 },
+    });
+    context.physics.teleportCharacter(playerId, respawnPosition);
+    context.physics.holdCharacter(playerId);
+    this.syncAnimationState(context, playerId, "idle");
   }
 
   getHostileBehavior(): "arena_3d" | "lane_2d" | "survival_zombie" {
@@ -1248,7 +1399,26 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   }
 
   getControlLine(): string {
-    return this.preset.controlLine;
+    const controls: string[] = [];
+    switch (this.preset.playerMovementMode) {
+      case "platformer":
+        controls.push("A/D move");
+        break;
+      default:
+        controls.push("WASD move");
+        break;
+    }
+    controls.push("Shift sprint");
+    if (this.gameplayPolicy.controls.jumpKey) {
+      controls.push(`${friendlyKeyLabel(this.gameplayPolicy.controls.jumpKey)} jump`);
+    }
+    controls.push(`${friendlyKeyLabel(this.gameplayPolicy.controls.attackKey)} attack`);
+    controls.push(`${friendlyKeyLabel(this.gameplayPolicy.controls.interactKey)} interact`);
+    const respawnKey = this.getRespawnKey();
+    if (respawnKey) {
+      controls.push(`${friendlyKeyLabel(respawnKey)} respawn`);
+    }
+    return controls.join(" | ");
   }
 
   getIdlePrompt(): string {
@@ -1256,7 +1426,57 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   }
 
   getAttackKey(): string {
-    return this.preset.attackKey;
+    return this.gameplayPolicy.controls.attackKey;
+  }
+
+  getInteractionKey(): string {
+    return this.gameplayPolicy.controls.interactKey;
+  }
+
+  getRespawnKey(): string | null {
+    if (this.gameplayPolicy.respawn.mode !== "manual") {
+      return null;
+    }
+    return this.gameplayPolicy.respawn.key ?? this.gameplayPolicy.controls.respawnKey ?? null;
+  }
+
+  getGameplayPolicy(): ThirdPersonActionGameplayPolicy {
+    return cloneThirdPersonActionGameplayPolicy(this.gameplayPolicy);
+  }
+
+  protected resolveRespawnPosition(
+    world: ReturnType<ModuleContext["store"]["peekWorld"]>,
+  ): Vec3 {
+    let zone = null;
+    switch (this.gameplayPolicy.respawn.target) {
+      case "spawn_only":
+        zone = world.zones.find((candidate) => candidate.kind === "spawn") ?? null;
+        break;
+      case "world_origin":
+        zone = null;
+        break;
+      case "safe_then_objective_then_spawn":
+      default:
+        zone = world.zones.find((candidate) => candidate.kind === "safe")
+          ?? world.zones.find((candidate) => candidate.kind === "objective")
+          ?? world.zones.find((candidate) => candidate.kind === "spawn")
+          ?? null;
+        break;
+    }
+
+    if (!zone) {
+      return {
+        x: 0,
+        y: 1.2,
+        z: -8,
+      };
+    }
+
+    return {
+      x: zone.transform.position.x,
+      y: Math.max(1.2, zone.transform.position.y + 0.2),
+      z: zone.transform.position.z,
+    };
   }
 }
 
@@ -1283,6 +1503,13 @@ function formatSeconds(seconds: number): string {
     return "locked";
   }
   return `${seconds.toFixed(2)}s`;
+}
+
+function friendlyKeyLabel(code: string): string {
+  if (code.startsWith("Key")) {
+    return code.replace("Key", "");
+  }
+  return code;
 }
 
 class FeatureShortCircuitError extends Error {

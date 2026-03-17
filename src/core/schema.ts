@@ -1,3 +1,5 @@
+import { ProjectGameplayPolicyOverrides } from "./policies";
+
 export type GameMode =
   | "third_person_survival"
   | "open_world"
@@ -279,6 +281,50 @@ export interface WorldDocument {
   simulation: WorldSimulationState;
 }
 
+export interface ProjectMetadata {
+  id: string;
+  name: string;
+  description: string;
+  createdAt: string;
+  updatedAt: string;
+  templateId?: string;
+  defaultGameMode: GameMode;
+}
+
+export interface ProjectDocument {
+  metadata: ProjectMetadata;
+  currentWorldId: string;
+  worlds: Record<string, WorldDocument>;
+  runtime: ProjectRuntimeConfig;
+}
+
+export interface ProjectFeatureOverride {
+  enabled: boolean;
+}
+
+export interface ProjectAppliedSuggestion {
+  suggestionId: string;
+  title: string;
+  worldId: string;
+  appliedAt: string;
+}
+
+export interface ProjectPlaytestSnapshot {
+  label: string;
+  capturedAt: string;
+  noteCount: number;
+  deathEvents: number;
+  lootEvents: number;
+  playerHitEvents: number;
+}
+
+export interface ProjectRuntimeConfig {
+  featureOverrides: Record<string, ProjectFeatureOverride>;
+  gameplayPolicies: ProjectGameplayPolicyOverrides;
+  appliedSuggestions: ProjectAppliedSuggestion[];
+  lastPlaytestReport?: ProjectPlaytestSnapshot;
+}
+
 export interface ResolvedEntity extends EntitySpec {
   tags: string[];
   components: EntityComponents;
@@ -309,6 +355,21 @@ export function cloneWorld(world: WorldDocument): WorldDocument {
   return JSON.parse(JSON.stringify(world)) as WorldDocument;
 }
 
+export function cloneProject(project: ProjectDocument): ProjectDocument {
+  return JSON.parse(JSON.stringify(project)) as ProjectDocument;
+}
+
+export function normalizeProject(project: ProjectDocument): ProjectDocument {
+  const cloned = cloneProject(project);
+  cloned.runtime = {
+    featureOverrides: cloned.runtime?.featureOverrides ?? {},
+    gameplayPolicies: cloned.runtime?.gameplayPolicies ?? {},
+    appliedSuggestions: cloned.runtime?.appliedSuggestions ?? [],
+    lastPlaytestReport: cloned.runtime?.lastPlaytestReport,
+  };
+  return cloned;
+}
+
 export function emptyWorld(): WorldDocument {
   return {
     metadata: {
@@ -334,6 +395,56 @@ export function emptyWorld(): WorldDocument {
       sectorStates: [],
     },
   };
+}
+
+export function projectFromWorld(
+  world: WorldDocument,
+  projectOverrides?: Partial<ProjectMetadata>,
+): ProjectDocument {
+  const clonedWorld = cloneWorld(world);
+  const now = new Date().toISOString();
+  return {
+    metadata: {
+      id: projectOverrides?.id ?? `groundtruth.project.${clonedWorld.metadata.id}`,
+      name: projectOverrides?.name ?? clonedWorld.metadata.name,
+      description: projectOverrides?.description ?? clonedWorld.metadata.description,
+      createdAt: projectOverrides?.createdAt ?? now,
+      updatedAt: projectOverrides?.updatedAt ?? now,
+      templateId: projectOverrides?.templateId,
+      defaultGameMode: projectOverrides?.defaultGameMode ?? clonedWorld.gameMode,
+    },
+    currentWorldId: clonedWorld.metadata.id,
+    worlds: {
+      [clonedWorld.metadata.id]: clonedWorld,
+    },
+    runtime: {
+      featureOverrides: {},
+      gameplayPolicies: {},
+      appliedSuggestions: [],
+    },
+  };
+}
+
+export function emptyProject(): ProjectDocument {
+  return projectFromWorld(emptyWorld(), {
+    id: "groundtruth.project.empty",
+    name: "Groundtruth Project",
+    description: "Project container for semantic world authoring.",
+    defaultGameMode: "third_person_survival",
+  });
+}
+
+export function isProjectDocument(value: unknown): value is ProjectDocument {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Partial<ProjectDocument>;
+  return (
+    !!candidate.metadata &&
+    typeof candidate.currentWorldId === "string" &&
+    !!candidate.worlds &&
+    typeof candidate.worlds === "object"
+  );
 }
 
 export function resolveEntity(

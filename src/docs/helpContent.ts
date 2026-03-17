@@ -54,12 +54,20 @@ export const humanHelpSections: HelpSection[] = [
       "Pick a template such as Survival Outpost, Third-Person Arena, First-Person Patrol, Top-Down Encounter, or Platformer Course.",
       "Click Start Project From Template.",
       "The template will load the right game mode and create a starter world tuned for that style of game, so you do not need to switch the mode manually afterward.",
+      "Use Export Project when you want to save the whole active project, not just the current world snapshot.",
+      "Use Build Playable Export when you want a player-focused game package seed instead of an editable project export.",
+      "Use Import Project to restore a previously exported project file.",
+      "Use Import Playable Export when you want to bring a player-focused build document back into the editor as a project seed.",
+      "Use Project Worlds to switch between saved worlds inside the same project.",
+      "Use Save Current World Copy when you want to preserve the active world as another project variant.",
+      "Use Build > Gameplay Policy when the active mode is close but the rules need to change for your project.",
       "From there, switch to Play to test it or use the authoring tools to reshape it.",
     ],
     notes: [
       "Templates are the fastest way to get a coherent starting point.",
       "First-Person Patrol and Top-Down Encounter currently start from the town-grid style.",
       "You can still use Generate Flat Outpost or New Empty World when you do not want a template-driven start.",
+      "Snapshot export/import remains world-oriented, while project export/import is for the broader project container.",
     ],
   },
   {
@@ -104,6 +112,26 @@ export const humanHelpSections: HelpSection[] = [
     ],
   },
   {
+    id: "gameplay-policy",
+    title: "Gameplay Policy",
+    summary: "How to change third-person-style rules without editing engine code.",
+    steps: [
+      "Open Build > Gameplay Policy.",
+      "Use Facing and Idle facing to choose whether the player faces the movement vector, the mouse cursor, or the camera forward direction.",
+      "Use Camera distance and Camera pitch to tune the current project’s third-person-style camera.",
+      "Use Attack targeting and Lock movement on attack to choose whether attacks need a hostile target and whether attacks root the player in place.",
+      "Use Loot transfer and Empty container to control whether containers give one item or everything, and whether empty containers stay or disappear.",
+      "Use Respawn mode and Respawn key to decide whether the current project allows manual respawn.",
+      "Use Aggro scale and Leash scale to change how early hostiles wake up and how far they keep chasing.",
+      "Click Apply Policy to save those behavior overrides into the active project.",
+      "Click Reset To Preset to discard the project override and return to the built-in preset behavior.",
+    ],
+    notes: [
+      "This is the first step toward treating Groundtruth presets as configurable engine policies instead of fixed game rules.",
+      "Current policy editing focuses on the shared action-family modules: third-person, third-person survival, first-person, top-down, and platformer.",
+    ],
+  },
+  {
     id: "stamps",
     title: "World Stamps",
     summary: "How to add reusable chunks of gameplay space onto the current world.",
@@ -118,6 +146,22 @@ export const humanHelpSections: HelpSection[] = [
     notes: [
       "Stamps are reusable semantic chunks, not full map generators.",
       "You can combine stamps with manual placement, resizing, and zone editing.",
+    ],
+  },
+  {
+    id: "recipes",
+    title: "World Recipes",
+    summary: "How to start from a more coherent precomposed game slice.",
+    steps: [
+      "Open Build > Recipes.",
+      "Pick a recipe such as Survival Town, First-Person Sweep, Top-Down Hotzone, or Platformer Gauntlet.",
+      "Click Start Project From Recipe.",
+      "Groundtruth will create a project that already combines a game mode, base layout, stamps, and initial feature defaults.",
+      "Use recipes when templates or generators alone are too low-level for the slice you want to test.",
+    ],
+    notes: [
+      "Recipes are stronger starting points than raw generators.",
+      "You can still edit, stamp, or reconfigure features after starting from a recipe.",
     ],
   },
   {
@@ -148,12 +192,18 @@ export const humanHelpSections: HelpSection[] = [
       "Use Session for the full runtime state dump, including authoring state, module info, and current editor settings.",
       "Use Sectors to inspect resident rings, pooled sectors, dormant sectors, and other far-field simulation details.",
       "Use Issues to see the combined list of runtime findings, asset findings, command issues, and evaluation problems.",
+      "Use Iteration to turn evaluation and playtest findings into suggested next actions.",
+      "Iteration suggestions now show how often they have already been applied in the current world and flag recently repeated suggestions.",
+      "Use Playtest to start a named session, add notes, and export a report with project/world/evaluation context.",
+      "Playtest sessions also produce simple derived findings, so the Runtime issue surface can reflect bad session outcomes instead of only static world issues.",
+      "After you export a playtest report, Groundtruth stores that summary as the baseline and compares future sessions against it.",
       "Use Events to read the recent runtime event log, including attacks, looting, deaths, rebuilds, and other state transitions.",
       "Use the viewport HUD for fast human playtesting feedback while the sidebar gives you the deeper detail.",
     ],
     notes: [
       "The sector overlay is most useful in Third-Person Survival and Scale Test worlds.",
       "If the sidebar gets in the way, use Hide Tools to collapse it and give the viewport more room.",
+      "A playable export can boot directly into player mode, which hides the editor sidebar entirely.",
     ],
   },
   {
@@ -167,25 +217,21 @@ export const humanHelpSections: HelpSection[] = [
       "Use this when you want repeatable semantic changes instead of hand-placing everything.",
     ],
     code: `[
-  { "op": "set_world_name", "name": "My Test Arena" },
-  { "op": "set_game_mode", "gameMode": "third_person" },
-  { "op": "generate_town_world" },
+  { "op": "set_project_name", "name": "Town Patrol Prototype" },
+  { "op": "start_world_recipe", "recipeId": "first_person_sweep" },
+  { "op": "set_project_feature", "featureId": "sector_population", "enabled": false },
   {
-    "op": "spawn_entity",
-    "entity": {
-      "id": "zombie.spawned.1",
-      "name": "Spawned Zombie",
-      "prefabId": "zombie_basic",
-      "transform": {
-        "position": { "x": 4, "y": 1.1, "z": -3 },
-        "rotation": { "x": 0, "y": 0, "z": 0 },
-        "scale": { "x": 1, "y": 1, "z": 1 }
-      }
+    "op": "set_project_gameplay_policy",
+    "policyId": "third_person_survival",
+    "patch": {
+      "facing": { "mode": "move_vector" },
+      "loot": { "emptyContainerMode": "persist" }
     }
-  }
+  },
+  { "op": "save_project_world", "name": "Town Patrol Variant A" }
 ]`,
     notes: [
-      "Current commands include reset_world, load_world, generate_flat_world, generate_town_world, set_game_mode, upsert_prefab, spawn_entity, update_entity, delete_entity, define_zone, delete_zone, and set_world_name.",
+      "Current commands include the world commands plus project-level commands such as set_project_name, set_project_feature, set_project_gameplay_policy, save_project_world, open_project_world, apply_world_stamp, start_project_template, and start_world_recipe.",
     ],
   },
   {
@@ -215,6 +261,8 @@ export const humanHelpSections: HelpSection[] = [
       "If movement does nothing, make sure you are in Play mode and click the viewport once to focus it.",
       "If a mode change seems ignored, generate or load a world again after changing Game Mode.",
       "If combat feels unclear, use the built-in feedback: hit flashes, floating markers, health bars, world labels, and the player danger overlay.",
+      "If you are doing a serious review pass, start a Playtest session first so you can export a report with notes instead of only relying on memory.",
+      "Export a playtest report before and after a major change when you want Groundtruth to show whether deaths, loot flow, or player pressure improved.",
       "If an entity behaves strangely, select it and inspect the Inspector, Assets, and Selection panels together.",
       "If the world looks invalid, check Evaluation first and Issues second.",
       "If you suspect a hot-rebuild problem, use Stress Test Swaps to push the rebuild path repeatedly.",
@@ -236,6 +284,7 @@ export const aiHelpSections: HelpSection[] = [
       "Prefer changing the world through templates, generators, stamps, authoring operations, and semantic command scripts before proposing core engine edits.",
       "Assume the active world is data-first: game mode, prefabs, entities, zones, stamps, evaluation, and runtime issues are the primary control surface.",
       "When a user asks for a game or level, start by selecting the closest implemented game mode, then choose a template or generator that best matches that mode.",
+      "Use the last exported playtest baseline and suggestion history as part of your reasoning, not just the current frame.",
     ],
     notes: [
       "Implemented modes today are Third-Person Survival, First-Person, Third-Person, Top-Down, and Platformer.",
@@ -250,9 +299,15 @@ export const aiHelpSections: HelpSection[] = [
       "Pick a target mode first: third_person_survival, first_person, third_person, top_down, or platformer.",
       "Start from Build > Project with the closest template, or use Build > World to generate Flat Outpost, Town Grid, Scale Test, or an Empty World.",
       "Use stamps to add larger structural chunks quickly before doing fine-grained edits.",
+      "Use Build > Features when the project needs capability-level changes such as disabling hostile AI, sector population, combat, or interaction.",
+      "Use Build > Gameplay Policy when the module is close but the rules are wrong, such as facing mode, loot behavior, camera feel, or respawn behavior.",
+      "That same policy surface now also covers attack targeting, attack movement locking, and hostile aggro/leash tuning.",
+      "Use Build > Recipes when the user asks for a coherent slice that maps to an existing recipe better than a raw generator or template.",
       "Use prefab/entity/zone edits only after the broad layout is in place.",
       "Run playtests in Play mode, then inspect Evaluation, Issues, Assets, and Runtime panels before making more changes.",
+      "Check Runtime > Iteration before repeating a change; prefer suggestions that are not already marked as recently applied unless you are deliberately retrying an intervention.",
       "Export snapshots when a world state is useful or when you need a reproducible failure case.",
+      "Export the whole project when the structure of the project itself is worth preserving beyond the current world state.",
     ],
     notes: [
       "Do not switch game mode and assume the current world automatically changes; always regenerate or load again after changing mode.",
@@ -282,11 +337,21 @@ export const aiHelpSections: HelpSection[] = [
     steps: [
       "Prefer command scripts when the requested change is structured and repeatable.",
       "Use set_world_name and set_game_mode first when establishing a new scenario.",
+      "Use set_project_gameplay_policy when the module is right but the rules need to change.",
       "Use generate_flat_world or generate_town_world before spawning many entities manually.",
       "Use spawn_entity, update_entity, delete_entity, define_zone, and delete_zone for precise world shaping.",
       "Use upsert_prefab only when you need to change prefab definitions rather than individual entity placement.",
     ],
     code: `[
+  { "op": "set_project_name", "name": "Town Patrol Test" },
+  {
+    "op": "set_project_gameplay_policy",
+    "policyId": "first_person_action",
+    "patch": {
+      "loot": { "emptyContainerMode": "persist" },
+      "respawn": { "mode": "disabled" }
+    }
+  },
   { "op": "set_world_name", "name": "Town Patrol Test" },
   { "op": "set_game_mode", "gameMode": "first_person" },
   { "op": "generate_town_world" },
@@ -308,6 +373,7 @@ export const aiHelpSections: HelpSection[] = [
 ]`,
     notes: [
       "Command scripts are the best way for another AI to express world mutations without touching engine internals.",
+      "The current policy surface is strongest for the shared action-family modules.",
       "After applying commands, inspect Evaluation and Issues to catch invalid or incoherent results.",
     ],
   },

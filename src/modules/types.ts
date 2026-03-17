@@ -1,3 +1,4 @@
+import { ThirdPersonActionGameplayPolicy } from "../core/policies";
 import { WorldStore } from "../core/worldStore";
 import { SectorLifecycleState, SectorPopulationTrend, WorldDocument } from "../core/schema";
 import { InputController } from "../runtime/input";
@@ -64,6 +65,9 @@ export interface RuntimeFeatureHost {
   getControlLine(): string;
   getIdlePrompt(): string;
   getAttackKey(): string;
+  getInteractionKey(): string;
+  getRespawnKey(): string | null;
+  getGameplayPolicy(): ThirdPersonActionGameplayPolicy;
   getHostileBehavior(): "arena_3d" | "lane_2d" | "survival_zombie";
   emitFeatureEvent(event: RuntimeFeatureEvent, context: ModuleContext): void;
   resolveEntityById(context: ModuleContext, entityId: string): import("../core/schema").ResolvedEntity;

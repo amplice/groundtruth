@@ -684,8 +684,8 @@ export function makeTownGridWorld(
         continue;
       }
       blockCenters.push({
-        x: gridX * roadSpan * 0.62,
-        z: gridZ * roadSpan * 0.62,
+        x: gridX * roadSpan * 0.68,
+        z: gridZ * roadSpan * 0.68,
       });
     }
   }
@@ -698,9 +698,9 @@ export function makeTownGridWorld(
       prefabId: isWarehouse ? "warehouse_building" : "shack_building",
       transform: {
         position: makeVec3(
-          center.x + ((random() - 0.5) * 7),
+          center.x + ((random() - 0.5) * (isWarehouse ? 4.5 : 5.5)),
           isWarehouse ? 2.5 : 1.6,
-          center.z + ((random() - 0.5) * 7),
+          center.z + ((random() - 0.5) * (isWarehouse ? 4.5 : 5.5)),
         ),
         rotation: makeVec3(0, pickQuarterTurn(random), 0),
         scale: isWarehouse

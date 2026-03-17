@@ -131,6 +131,8 @@ export class SceneRuntime {
 
   private readonly pointer = new THREE.Vector2();
 
+  private lastGroundPointer: { x: number; y: number; z: number } | null = null;
+
   private readonly groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 
   private readonly entityMap = new Map<string, THREE.Object3D>();
@@ -243,6 +245,7 @@ export class SceneRuntime {
     this.scene.add(sun);
 
     this.renderer.domElement.addEventListener("pointerdown", this.handlePointerDown);
+    this.renderer.domElement.addEventListener("pointermove", this.handlePointerMove);
     window.addEventListener("resize", this.handleResize);
   }
 
@@ -577,6 +580,10 @@ export class SceneRuntime {
         z: hit.z,
       },
     };
+  }
+
+  getPointerGroundPoint(): { x: number; y: number; z: number } | null {
+    return this.lastGroundPointer ? { ...this.lastGroundPointer } : null;
   }
 
   private buildEntityObject(entity: ReturnType<typeof resolveEntity>): THREE.Object3D {
@@ -1412,7 +1419,6 @@ export class SceneRuntime {
       animations,
     };
   }
-
   private loadFbxObject(uri: string): Promise<THREE.Group> {
     return new Promise<THREE.Group>((resolve, reject) => {
       this.fbxLoader.load(
@@ -1546,6 +1552,11 @@ export class SceneRuntime {
     const zoneId = zoneHit?.object.userData.zoneId ?? zoneHit?.object.parent?.userData.zoneId ?? null;
     this.setSelection(null, zoneId);
     this.onSelect(zoneId ? { type: "zone", id: zoneId } : { type: "none", id: null });
+  };
+
+  private readonly handlePointerMove = (event: PointerEvent): void => {
+    const groundPick = this.screenPointToGround(event.clientX, event.clientY);
+    this.lastGroundPointer = groundPick?.point ?? null;
   };
 
   private readonly handleResize = (): void => {

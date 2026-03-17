@@ -73,6 +73,7 @@ export class HostileAIFeature implements RuntimeFeature {
       return;
     }
     const resolvedPlayer = resolveEntity(world, player);
+    const hostilePolicy = host.getGameplayPolicy().hostile;
     host.resetHostileActivity();
     const occupiedSectors = new Set<string>();
     const activeSectors = new Set<string>();
@@ -93,11 +94,12 @@ export class HostileAIFeature implements RuntimeFeature {
 
       const combat = resolved.components.combat;
       const distance = planarDistance(resolvedPlayer.transform.position, resolved.transform.position);
-      const aggroRadius = resolved.components.brain?.aggroRadius ?? 14;
+      const aggroRadius = (resolved.components.brain?.aggroRadius ?? 14) * hostilePolicy.aggroRadiusScale;
+      const leashRadius = aggroRadius * hostilePolicy.leashRadiusScale;
       const activityTier: HostileActivityTier =
         distance <= aggroRadius
           ? "active"
-          : distance <= aggroRadius + 14
+          : distance <= aggroRadius + hostilePolicy.throttlePadding
             ? "throttled"
             : "sleeping";
       host.noteHostileActivity(entity.id, activityTier);
@@ -124,7 +126,7 @@ export class HostileAIFeature implements RuntimeFeature {
       }
 
       const lockedAction = host.getCurrentLockedAction(context, entity.id);
-      if (distance > aggroRadius || (lockedAction?.lockMovement ?? false)) {
+      if (distance > leashRadius || (lockedAction?.lockMovement ?? false)) {
         host.syncAnimationState(context, entity.id, "idle");
         host.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
@@ -170,6 +172,7 @@ export class HostileAIFeature implements RuntimeFeature {
       return;
     }
     const resolvedPlayer = resolveEntity(world, player);
+    const hostilePolicy = host.getGameplayPolicy().hostile;
     host.resetHostileActivity();
 
     for (const entity of world.entities) {
@@ -196,11 +199,12 @@ export class HostileAIFeature implements RuntimeFeature {
       const dx = resolvedPlayer.transform.position.x - resolved.transform.position.x;
       const verticalGap = Math.abs(resolvedPlayer.transform.position.y - resolved.transform.position.y);
       const distance = Math.abs(dx);
-      const aggroRadius = resolved.components.brain?.aggroRadius ?? 12;
+      const aggroRadius = (resolved.components.brain?.aggroRadius ?? 12) * hostilePolicy.aggroRadiusScale;
+      const leashRadius = aggroRadius * hostilePolicy.leashRadiusScale;
       const activityTier: HostileActivityTier =
         distance <= aggroRadius
           ? "active"
-          : distance <= aggroRadius + 10
+          : distance <= aggroRadius + hostilePolicy.throttlePadding
             ? "throttled"
             : "sleeping";
       host.noteHostileActivity(entity.id, activityTier);
@@ -226,7 +230,7 @@ export class HostileAIFeature implements RuntimeFeature {
       }
 
       const lockedAction = host.getCurrentLockedAction(context, entity.id);
-      if ((lockedAction?.lockMovement ?? false) || distance > aggroRadius) {
+      if ((lockedAction?.lockMovement ?? false) || distance > leashRadius) {
         host.syncAnimationState(context, entity.id, "idle");
         host.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);
         continue;
@@ -279,6 +283,7 @@ export class HostileAIFeature implements RuntimeFeature {
     const resolvedPlayer = resolveEntity(world, player);
     const sectorSize = world.settings.sectorSize;
     const playerSector = sectorCoordForPoint(resolvedPlayer.transform.position, sectorSize);
+    const hostilePolicy = host.getGameplayPolicy().hostile;
     const occupiedSectors = new Set<string>();
     const activeSectors = new Set<string>();
     host.resetHostileActivity();
@@ -306,9 +311,10 @@ export class HostileAIFeature implements RuntimeFeature {
         Math.abs(zombieSector.x - playerSector.x),
         Math.abs(zombieSector.z - playerSector.z),
       );
-      const aggroRadius = brain.aggroRadius ?? 0;
+      const aggroRadius = (brain.aggroRadius ?? 0) * hostilePolicy.aggroRadiusScale;
+      const leashRadius = aggroRadius * hostilePolicy.leashRadiusScale;
       const activityRadius = brain.activityRadius ?? Math.max(aggroRadius + 4, 18);
-      const sleepRadius = brain.sleepRadius ?? Math.max(activityRadius + 24, 42);
+      const sleepRadius = brain.sleepRadius ?? Math.max(activityRadius + hostilePolicy.sleepPadding, 42);
       const activityTier: HostileActivityTier =
         distance <= activityRadius || sectorDistance <= 1
           ? "active"
@@ -341,7 +347,7 @@ export class HostileAIFeature implements RuntimeFeature {
       }
 
       const lockedAction = host.getCurrentLockedAction(context, entity.id);
-      const chasing = distance > (combat?.range ?? 0) && distance <= aggroRadius;
+      const chasing = distance > (combat?.range ?? 0) && distance <= leashRadius;
       if (!chasing || (lockedAction?.lockMovement ?? false)) {
         host.syncAnimationState(context, entity.id, "idle");
         host.recordHostileMotion(entity.id, resolved.transform.position, false, updateDt);

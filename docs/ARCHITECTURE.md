@@ -18,11 +18,21 @@ Groundtruth is a browser-first semantic runtime for AI-native 3D games.
 
 The AI edits world semantics, not engine internals.
 
+Groundtruth should also preserve a strict boundary between:
+
+- project content
+- preset/policy behavior
+- optional runtime features
+- engine core
+
+See [ENGINE_RULEBOOK.md](./ENGINE_RULEBOOK.md) for the operating rules behind that boundary.
+
 ## Current Packages
 
 - `src/core`
   - world schema
   - semantic commands
+  - gameplay policies
   - sample world documents
   - store/diagnostics
   - world evaluation

@@ -4,6 +4,10 @@ import {
   makeTownGridWorld,
 } from "./sampleWorld";
 import {
+  GameplayPolicyProfileId,
+  ThirdPersonActionGameplayPolicyPatch,
+} from "./policies";
+import {
   EntitySpec,
   GameMode,
   PrefabSpec,
@@ -26,6 +30,21 @@ export type WorldCommand =
   | { op: "define_zone"; zone: ZoneSpec }
   | { op: "delete_zone"; zoneId: string }
   | { op: "set_world_name"; name: string; description?: string };
+
+export type AppCommand =
+  | WorldCommand
+  | { op: "set_project_name"; name: string; description?: string }
+  | { op: "set_project_feature"; featureId: string; enabled: boolean }
+  | {
+      op: "set_project_gameplay_policy";
+      policyId: GameplayPolicyProfileId;
+      patch: ThirdPersonActionGameplayPolicyPatch;
+    }
+  | { op: "save_project_world"; name?: string }
+  | { op: "open_project_world"; worldId: string }
+  | { op: "apply_world_stamp"; stampId: string }
+  | { op: "start_project_template"; templateId: string; projectName?: string }
+  | { op: "start_world_recipe"; recipeId: string; projectName?: string };
 
 export interface CommandResult {
   world: WorldDocument;
@@ -124,10 +143,27 @@ export function applyCommands(
   return { world, issues };
 }
 
-export function parseCommandScript(source: string): WorldCommand[] {
+export function parseCommandScript(source: string): AppCommand[] {
   const parsed = JSON.parse(source) as unknown;
   if (Array.isArray(parsed)) {
-    return parsed as WorldCommand[];
+    return parsed as AppCommand[];
   }
   throw new Error("Expected a JSON array of commands.");
+}
+
+export function isWorldCommand(command: AppCommand): command is WorldCommand {
+  return [
+    "reset_world",
+    "load_world",
+    "generate_flat_world",
+    "generate_town_world",
+    "set_game_mode",
+    "upsert_prefab",
+    "spawn_entity",
+    "update_entity",
+    "delete_entity",
+    "define_zone",
+    "delete_zone",
+    "set_world_name",
+  ].includes(command.op);
 }
