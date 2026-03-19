@@ -2,6 +2,7 @@ import { CombatFeature } from "./combatFeature";
 import { CombatFeedbackFeature } from "./combatFeedbackFeature";
 import { HostileAIFeature } from "./hostileAIFeature";
 import { InteractionInventoryFeature } from "./interactionInventoryFeature";
+import { ObjectiveProgressFeature } from "./objectiveProgressFeature";
 import { RuntimeFeature, RuntimeFeatureId } from "./types";
 import { SectorPopulationFeature } from "./sectorPopulationFeature";
 
@@ -18,6 +19,8 @@ export function createRuntimeFeatures(featureIds: RuntimeFeatureId[] = []): Runt
         return new InteractionInventoryFeature();
       case "sector_population":
         return new SectorPopulationFeature();
+      case "objective_progress":
+        return new ObjectiveProgressFeature();
       default:
         return assertUnreachable(featureId);
     }

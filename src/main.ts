@@ -21,6 +21,7 @@ import { getWorldRecipe, listWorldRecipes } from "./core/worldRecipes";
 import { HelpAudience, HelpSection, helpContentByAudience } from "./docs/helpContent";
 import { evaluatePlaytest, evaluateWorld } from "./core/evaluation";
 import {
+  AnimationComponent,
   GameMode,
   ModelRenderComponent,
   ProjectDocument,
@@ -37,6 +38,7 @@ import {
   makeFlatOutpostWorld,
   makeTownGridWorld,
   makeThirdPersonSurvivalWorld,
+  makeUrbanCityWorld,
 } from "./core/sampleWorld";
 import { applyWorldStamp, listWorldStamps } from "./core/worldStamps";
 import {
@@ -58,29 +60,41 @@ async function bootstrap(): Promise<void> {
 
   root.innerHTML = `
     <div class="shell">
-      <aside class="panel">
-        <div class="brand">
-          <span class="eyebrow">Groundtruth</span>
-          <h1>Web Runtime</h1>
-          <p>Browser-first semantic runtime for AI-native 3D games.</p>
+      <main class="viewport">
+        <div class="viewport-head">
+          <div>
+            <span class="eyebrow">Groundtruth</span>
+            <strong>AI-native 3D game engine</strong>
+          </div>
+          <div class="viewport-toolbar">
+            <div class="workspace-switcher" role="tablist" aria-label="Primary workspace">
+              <button class="tab-button active" type="button" data-pane-target="play" aria-pressed="true">Playtest</button>
+              <button class="tab-button" type="button" data-pane-target="world" aria-pressed="false">Map</button>
+              <button class="tab-button" type="button" data-pane-target="assets" aria-pressed="false">Assets</button>
+            </div>
+            <div class="workspace-utilities">
+              <button class="tab-button utility-tab" type="button" data-pane-target="project" aria-pressed="false">Project</button>
+              <button class="tab-button utility-tab" type="button" data-pane-target="debug" aria-pressed="false">Debug</button>
+              <button id="open-docs" class="secondary chrome-toggle" type="button">Docs</button>
+              <button id="toggle-hud" class="secondary chrome-toggle" type="button" aria-pressed="true">Hide HUD</button>
+              <button id="toggle-sidebar" class="secondary chrome-toggle" type="button" aria-expanded="true">Hide Workspace</button>
+              <div id="runtime-stats" class="runtime-stats"></div>
+            </div>
+          </div>
         </div>
-        <section class="overview-card">
+        <aside class="panel">
+        <section id="workspace-overview" class="overview-card">
           <div class="overview-head">
             <h2 class="overview-title">Overview</h2>
             <span class="overview-subtitle">Current workspace</span>
           </div>
           <div id="overview" class="overview-copy"></div>
         </section>
-        <div class="panel-tabs" role="tablist" aria-label="Sidebar workspace">
-          <button class="tab-button active" type="button" data-pane-target="build" aria-pressed="true">Build</button>
-          <button class="tab-button" type="button" data-pane-target="inspect" aria-pressed="false">Inspect</button>
-          <button class="tab-button" type="button" data-pane-target="runtime" aria-pressed="false">Runtime</button>
-        </div>
         <div class="panel-stack">
-        <details class="section tool-section" data-pane="build" open>
+        <details class="section tool-section" data-pane="project" open>
           <summary class="section-head">
             <h2>Project</h2>
-            <span>Template-driven start</span>
+            <span>Files, templates, world variants</span>
           </summary>
           <div class="section-body">
             <div class="generation-grid">
@@ -96,210 +110,43 @@ async function bootstrap(): Promise<void> {
             <div id="project-template-summary" class="inline-summary"></div>
             <div class="generation-grid">
               <label class="wide">
-                <span>Project Worlds</span>
+                <span>World Variants</span>
                 <select id="project-world"></select>
               </label>
             </div>
             <div id="project-world-summary" class="inline-summary"></div>
+            <div id="project-save-summary" class="inline-summary"></div>
             <div class="controls">
               <button id="start-project">Start Project From Template</button>
-              <button id="save-project-world" class="secondary">Save Current World Copy</button>
-              <button id="open-project-world" class="secondary">Open Project World</button>
-              <button id="export-project" class="secondary">Export Project</button>
+              <button id="save-project">Save Project</button>
               <button id="export-playable" class="secondary">Build Playable Export</button>
-              <button id="import-project" class="secondary">Import Project</button>
-              <button id="import-playable" class="secondary">Import Playable Export</button>
+              <button id="import-project" class="secondary">Open</button>
             </div>
+            <details class="subsection">
+              <summary>More project options</summary>
+              <div class="controls compact-controls">
+                <button id="save-project-world" class="secondary">Save World Variant</button>
+                <button id="open-project-world" class="secondary">Open World Variant</button>
+                <button id="export-project" class="secondary">Export Project</button>
+              </div>
+            </details>
           </div>
         </details>
-        <details class="section tool-section" data-pane="build" open>
-          <summary class="section-head">
-            <h2>World</h2>
-            <span>Mode, generation, snapshots</span>
-          </summary>
-          <div class="section-body">
-            <div class="generation-grid single-span">
-              <label class="wide">
-                <span>Game Mode</span>
-                <select id="game-mode-template"></select>
-              </label>
-            </div>
-            <div class="controls quick-actions">
-              <button id="load-generated">Generate Flat Outpost</button>
-              <button id="load-town">Generate Town Grid</button>
-              <button id="load-scale-test">Generate Scale Test</button>
-              <button id="load-empty" class="secondary">New Empty World</button>
-              <button id="load-sample">Load Survival Slice</button>
-              <button id="reset-world" class="secondary">Reset World</button>
-              <button id="stress-world" class="secondary">Stress Test Swaps</button>
-              <button id="export-world" class="secondary">Export Snapshot</button>
-              <button id="import-world" class="secondary">Import Snapshot</button>
-              <button id="capture-shot" class="secondary">Capture Screenshot</button>
-            </div>
-            <div class="generation-grid">
-            <label>
-              <span>Seed</span>
-              <input id="world-seed" type="number" value="${defaultFlatWorldOptions.seed}" />
-            </label>
-            <label>
-              <span>Size</span>
-              <input id="world-size" type="number" value="${defaultFlatWorldOptions.worldHalfExtent}" />
-            </label>
-            <label>
-              <span>Buildings</span>
-              <input id="building-count" type="number" value="${defaultFlatWorldOptions.buildingCount}" />
-            </label>
-            <label>
-              <span>Zombies</span>
-              <input id="zombie-count" type="number" value="${defaultFlatWorldOptions.zombieCount}" />
-            </label>
-            <label>
-              <span>Crates</span>
-              <input id="crate-count" type="number" value="${defaultFlatWorldOptions.crateCount}" />
-            </label>
-          </div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="runtime" open>
-          <summary class="section-head">
-            <h2>Debug View</h2>
-            <span>Human overlays</span>
-          </summary>
-          <div class="section-body">
-            <div class="toggle-grid">
-            <label class="toggle">
-              <input id="toggle-zones" type="checkbox" checked />
-              <span>Zone volumes</span>
-            </label>
-            <label class="toggle">
-              <input id="toggle-combat" type="checkbox" />
-              <span>Combat ranges</span>
-            </label>
-            <label class="toggle">
-              <input id="toggle-interaction" type="checkbox" checked />
-              <span>Loot ranges</span>
-            </label>
-            <label class="toggle">
-              <input id="toggle-aggro" type="checkbox" />
-              <span>Aggro radii</span>
-            </label>
-            <label class="toggle">
-              <input id="toggle-sectors" type="checkbox" />
-              <span>Sector overlay</span>
-            </label>
-          </div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="build" open>
-          <summary class="section-head">
-            <h2>Authoring</h2>
-            <span>In-world editing</span>
-          </summary>
-          <div class="section-body">
-            <div class="generation-grid">
-            <label>
-              <span>Mode</span>
-              <input id="authoring-mode" value="play" readonly />
-            </label>
-            <label>
-              <span>Prefab</span>
-              <select id="authoring-prefab"></select>
-            </label>
-            <label>
-              <span>Place scale</span>
-              <input id="authoring-scale" type="number" step="0.1" value="1" />
-            </label>
-            <label>
-              <span>Place yaw deg</span>
-              <input id="authoring-yaw" type="number" step="15" value="0" />
-            </label>
-            <label>
-              <span>Zone kind</span>
-              <select id="authoring-zone-kind">
-                <option value="spawn">spawn</option>
-                <option value="safe">safe</option>
-                <option value="loot">loot</option>
-                <option value="encounter">encounter</option>
-                <option value="objective">objective</option>
-                <option value="trigger">trigger</option>
-              </select>
-            </label>
-            <label>
-              <span>Zone shape</span>
-              <select id="authoring-zone-shape">
-                <option value="sphere">sphere</option>
-                <option value="box">box</option>
-              </select>
-            </label>
-            <label>
-              <span>Zone size</span>
-              <input id="authoring-zone-size" type="number" step="1" value="10" />
-            </label>
-          </div>
-          <div id="authoring-palette" class="prefab-palette"></div>
-          <div class="controls">
-            <button id="mode-play" class="secondary">Play</button>
-            <button id="mode-place" class="secondary">Place</button>
-            <button id="mode-move" class="secondary">Move</button>
-            <button id="mode-resize" class="secondary">Resize</button>
-            <button id="mode-zone" class="secondary">Zone</button>
-            <button id="apply-selected-transform" class="secondary">Apply To Selected</button>
-            <button id="delete-selected" class="secondary">Delete Selected</button>
-          </div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="build" open>
-          <summary class="section-head">
-            <h2>Stamps</h2>
-            <span>Reusable world chunks</span>
-          </summary>
-          <div class="section-body">
-            <div class="generation-grid">
-              <label class="wide">
-                <span>Stamp</span>
-                <select id="world-stamp"></select>
-              </label>
-            </div>
-            <div id="world-stamp-summary" class="inline-summary"></div>
-            <div class="controls compact-controls">
-              <button id="apply-world-stamp" class="secondary">Apply Stamp To Current World</button>
-            </div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="build">
-          <summary class="section-head">
-            <h2>Recipes</h2>
-            <span>Coherent game slices</span>
-          </summary>
-          <div class="section-body">
-            <div class="generation-grid">
-              <label class="wide">
-                <span>Recipe</span>
-                <select id="world-recipe"></select>
-              </label>
-            </div>
-            <div id="world-recipe-summary" class="inline-summary"></div>
-            <div class="controls compact-controls">
-              <button id="start-world-recipe">Start Project From Recipe</button>
-            </div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="build">
-          <summary class="section-head">
-            <h2>Features</h2>
-            <span>Project capability toggles</span>
-          </summary>
-          <div class="section-body">
-            <div id="feature-toggles" class="feature-toggle-list"></div>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="build">
+        <details class="section tool-section" data-pane="project" open>
           <summary class="section-head">
             <h2>Gameplay Policy</h2>
-            <span>Third-person action rules</span>
+            <span>Camera, combat, and loot rules</span>
           </summary>
           <div class="section-body">
             <div class="generation-grid">
+              <label>
+                <span>Camera distance</span>
+                <input id="policy-camera-distance" type="number" step="0.1" value="10.5" />
+              </label>
+              <label>
+                <span>Camera pitch</span>
+                <input id="policy-camera-pitch" type="number" step="0.01" value="0.78" />
+              </label>
               <label>
                 <span>Facing</span>
                 <select id="policy-facing-mode">
@@ -315,14 +162,6 @@ async function bootstrap(): Promise<void> {
                   <option value="cursor_aim">cursor_aim</option>
                   <option value="camera_forward">camera_forward</option>
                 </select>
-              </label>
-              <label>
-                <span>Camera distance</span>
-                <input id="policy-camera-distance" type="number" step="0.1" value="10.5" />
-              </label>
-              <label>
-                <span>Camera pitch</span>
-                <input id="policy-camera-pitch" type="number" step="0.01" value="0.78" />
               </label>
               <label>
                 <span>Attack targeting</span>
@@ -376,7 +215,232 @@ async function bootstrap(): Promise<void> {
             </div>
           </div>
         </details>
-        <details class="section tool-section" data-pane="build">
+        <details class="section tool-section" data-pane="world" open>
+          <summary class="section-head">
+            <h2>World</h2>
+            <span>Reset and snapshots</span>
+          </summary>
+          <div class="section-body">
+            <div class="controls compact-controls">
+              <button id="reset-world" class="secondary">Reset World</button>
+              <button id="capture-shot" class="secondary">Capture Screenshot</button>
+            </div>
+            <details class="subsection">
+              <summary>Advanced</summary>
+              <div class="generation-grid single-span">
+                <label class="wide">
+                  <span>Game Mode Override</span>
+                  <select id="game-mode-template"></select>
+                </label>
+              </div>
+              <div class="generation-grid">
+                <label>
+                  <span>Seed</span>
+                  <input id="world-seed" type="number" value="${defaultFlatWorldOptions.seed}" />
+                </label>
+                <label>
+                  <span>Size</span>
+                  <input id="world-size" type="number" value="${defaultFlatWorldOptions.worldHalfExtent}" />
+                </label>
+                <label>
+                  <span>Buildings</span>
+                  <input id="building-count" type="number" value="${defaultFlatWorldOptions.buildingCount}" />
+                </label>
+                <label>
+                  <span>Zombies</span>
+                  <input id="zombie-count" type="number" value="${defaultFlatWorldOptions.zombieCount}" />
+                </label>
+                <label>
+                  <span>Crates</span>
+                  <input id="crate-count" type="number" value="${defaultFlatWorldOptions.crateCount}" />
+                </label>
+              </div>
+              <div class="controls compact-controls">
+                <button id="load-urban" class="secondary">Generate Urban City</button>
+                <button id="load-generated" class="secondary">Generate Flat Outpost</button>
+                <button id="load-town" class="secondary">Generate Town Grid</button>
+                <button id="load-sample" class="secondary">Load Survival Slice</button>
+                <button id="load-scale-test" class="secondary">Generate Scale Test</button>
+                <button id="load-empty" class="secondary">New Empty World</button>
+                <button id="stress-world" class="secondary">Stress Test Swaps</button>
+                <button id="export-world" class="secondary">Export Snapshot</button>
+                <button id="import-world" class="secondary">Import Snapshot</button>
+              </div>
+            </details>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="play" open>
+          <summary class="section-head">
+            <h2>Play View</h2>
+            <span>HUD and overlay controls</span>
+          </summary>
+          <div class="section-body">
+            <div class="toggle-grid">
+            <label class="toggle">
+              <input id="toggle-zones" type="checkbox" checked />
+              <span>Zone volumes</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-combat" type="checkbox" />
+              <span>Combat ranges</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-interaction" type="checkbox" checked />
+              <span>Loot ranges</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-aggro" type="checkbox" />
+              <span>Aggro radii</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-sectors" type="checkbox" />
+              <span>Sector overlay</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-hud-status" type="checkbox" checked />
+              <span>Playtest HUD card</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-hud-findings" type="checkbox" checked />
+              <span>Findings card</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-hud-evaluation" type="checkbox" checked />
+              <span>Evaluation card</span>
+            </label>
+            <label class="toggle">
+              <input id="toggle-hud-debug" type="checkbox" checked />
+              <span>Player debug card</span>
+            </label>
+          </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="world">
+          <summary class="section-head">
+            <h2>Authoring</h2>
+            <span>In-world editing</span>
+          </summary>
+          <div class="section-body">
+            <div class="authoring-flow-note">
+              Choose whether you are playing the game or editing the map. Edit tools only work while in
+              <strong> Edit</strong> mode.
+            </div>
+            <div class="authoring-shell">
+              <div class="authoring-step">
+                <div class="authoring-step-label">1. Mode</div>
+                <div class="controls compact-controls authoring-mode-controls">
+                  <button id="mode-play" class="secondary">Play</button>
+                  <button id="mode-edit" class="secondary">Edit</button>
+                </div>
+              </div>
+              <div class="authoring-step">
+                <div class="authoring-step-label">2. Edit tool</div>
+                <div class="controls authoring-tool-controls">
+                  <button id="mode-place" class="secondary">Place</button>
+                  <button id="mode-move" class="secondary">Move</button>
+                  <button id="mode-resize" class="secondary">Resize</button>
+                  <button id="mode-zone" class="secondary">Zone</button>
+                </div>
+              </div>
+            </div>
+            <div class="generation-grid">
+            <label>
+              <span>Mode</span>
+              <input id="authoring-mode" value="play" readonly />
+            </label>
+            <label>
+              <span>Edit tool</span>
+              <input id="authoring-tool" value="place" readonly />
+            </label>
+            <label>
+              <span>Prefab</span>
+              <select id="authoring-prefab"></select>
+            </label>
+            <label>
+              <span>Place scale</span>
+              <input id="authoring-scale" type="number" step="0.1" value="1" />
+            </label>
+            <label>
+              <span>Place yaw deg</span>
+              <input id="authoring-yaw" type="number" step="15" value="0" />
+            </label>
+            <label>
+              <span>Zone kind</span>
+              <select id="authoring-zone-kind">
+                <option value="spawn">spawn</option>
+                <option value="safe">safe</option>
+                <option value="loot">loot</option>
+                <option value="encounter">encounter</option>
+                <option value="objective">objective</option>
+                <option value="trigger">trigger</option>
+              </select>
+            </label>
+            <label>
+              <span>Zone shape</span>
+              <select id="authoring-zone-shape">
+                <option value="sphere">sphere</option>
+                <option value="box">box</option>
+              </select>
+            </label>
+            <label>
+              <span>Zone size</span>
+              <input id="authoring-zone-size" type="number" step="1" value="10" />
+            </label>
+          </div>
+          <div id="authoring-prefab-summary" class="inline-summary"></div>
+          <div id="authoring-palette" class="prefab-palette"></div>
+          <div class="controls">
+            <button id="apply-selected-transform" class="secondary">Apply To Selected</button>
+            <button id="delete-selected" class="secondary">Delete Selected</button>
+          </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="world">
+          <summary class="section-head">
+            <h2>Stamps</h2>
+            <span>Reusable world chunks</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Stamp</span>
+                <select id="world-stamp"></select>
+              </label>
+            </div>
+            <div id="world-stamp-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="apply-world-stamp" class="secondary">Apply Stamp To Current World</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="world">
+          <summary class="section-head">
+            <h2>Recipes</h2>
+            <span>Coherent game slices</span>
+          </summary>
+          <div class="section-body">
+            <div class="generation-grid">
+              <label class="wide">
+                <span>Recipe</span>
+                <select id="world-recipe"></select>
+              </label>
+            </div>
+            <div id="world-recipe-summary" class="inline-summary"></div>
+            <div class="controls compact-controls">
+              <button id="start-world-recipe">Start Project From Recipe</button>
+            </div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="project">
+          <summary class="section-head">
+            <h2>Features</h2>
+            <span>Project capability toggles</span>
+          </summary>
+          <div class="section-body">
+            <div id="feature-toggles" class="feature-toggle-list"></div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="project">
           <summary class="section-head">
             <h2>Command Script</h2>
             <span>Semantic JSON</span>
@@ -388,7 +452,7 @@ async function bootstrap(): Promise<void> {
             <textarea id="command-script" spellcheck="false"></textarea>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect">
+        <details class="section tool-section" data-pane="world">
           <summary class="section-head">
             <h2>Inspector</h2>
             <span>Selected entity or zone</span>
@@ -397,7 +461,7 @@ async function bootstrap(): Promise<void> {
             <pre id="inspector"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect" open>
+        <details class="section tool-section" data-pane="world" open>
           <summary class="section-head">
             <h2>Scene</h2>
             <span>Entities and zones</span>
@@ -423,7 +487,7 @@ async function bootstrap(): Promise<void> {
             <div id="scene-inventory" class="scene-inventory"></div>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect" open>
+        <details class="section tool-section" data-pane="world">
           <summary class="section-head">
             <h2>Evaluation</h2>
             <span>World checks</span>
@@ -432,7 +496,7 @@ async function bootstrap(): Promise<void> {
             <pre id="evaluation"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect">
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Diagnostics</h2>
             <span>Live state</span>
@@ -441,7 +505,7 @@ async function bootstrap(): Promise<void> {
             <pre id="diagnostics"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime">
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Session</h2>
             <span>Advanced runtime details</span>
@@ -450,7 +514,7 @@ async function bootstrap(): Promise<void> {
             <pre id="session"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime" open>
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Sectors</h2>
             <span>Population/debug</span>
@@ -459,7 +523,7 @@ async function bootstrap(): Promise<void> {
             <pre id="sector-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect">
+        <details class="section tool-section" data-pane="assets">
           <summary class="section-head">
             <h2>Assets</h2>
             <span>Validation/runtime</span>
@@ -468,33 +532,99 @@ async function bootstrap(): Promise<void> {
             <pre id="asset-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect">
+        <details class="section tool-section" data-pane="assets" open>
           <summary class="section-head">
-            <h2>Model Tuning</h2>
-            <span>Selected model</span>
+            <h2>Asset Fit</h2>
+            <span>Prefab preview on floor</span>
           </summary>
           <div class="section-body">
+            <div class="controls inline-controls">
+              <button id="asset-fit-prev" class="secondary" type="button">Prev</button>
+              <button id="asset-fit-next" class="secondary" type="button">Next</button>
+            </div>
+            <label>
+              <span>Model prefab</span>
+              <select id="asset-fit-prefab"></select>
+            </label>
+            <label>
+              <span>Preview anim</span>
+              <select id="asset-fit-animation"></select>
+            </label>
+            <label>
+              <span>Anim speed</span>
+              <input id="asset-fit-anim-speed" type="number" step="0.1" min="0" value="1" />
+            </label>
             <div class="generation-grid">
-            <label>
-              <span>Scale</span>
-              <input id="model-scale" type="number" step="0.01" value="1" />
-            </label>
-            <label>
-              <span>Yaw deg</span>
-              <input id="model-yaw" type="number" step="1" value="0" />
-            </label>
-            <label>
-              <span>Offset Y</span>
-              <input id="model-offset-y" type="number" step="0.01" value="0" />
-            </label>
-          </div>
-          <div class="controls">
-            <button id="apply-model-tuning">Apply Tuning</button>
-            <button id="refresh-model-tuning" class="secondary">Load Selected</button>
-          </div>
+              <label>
+                <span>Scale</span>
+                <input id="asset-fit-scale" type="number" step="0.001" value="1" />
+              </label>
+              <label>
+                <span>Yaw deg</span>
+                <input id="asset-fit-yaw" type="number" step="1" value="0" />
+              </label>
+              <label>
+                <span>Offset Y</span>
+                <input id="asset-fit-offset-y" type="number" step="0.01" value="0" />
+              </label>
+            </div>
+            <details class="subsection" open>
+              <summary>Collision</summary>
+              <div class="generation-grid">
+                <label>
+                  <span>Shape</span>
+                  <select id="asset-fit-collision-shape">
+                    <option value="none">none</option>
+                    <option value="box">box</option>
+                    <option value="cylinder">cylinder</option>
+                    <option value="sphere">sphere</option>
+                    <option value="capsule">capsule</option>
+                  </select>
+                </label>
+                <label class="toggle inline-toggle">
+                  <input id="asset-fit-solid" type="checkbox" checked />
+                  <span>Solid (blocks movement)</span>
+                </label>
+              </div>
+              <div class="generation-grid">
+                <label>
+                  <span>Size X</span>
+                  <input id="asset-fit-col-sx" type="number" step="0.1" value="1" />
+                </label>
+                <label>
+                  <span>Size Y</span>
+                  <input id="asset-fit-col-sy" type="number" step="0.1" value="1" />
+                </label>
+                <label>
+                  <span>Size Z</span>
+                  <input id="asset-fit-col-sz" type="number" step="0.1" value="1" />
+                </label>
+              </div>
+              <div class="generation-grid">
+                <label>
+                  <span>Offset X</span>
+                  <input id="asset-fit-col-ox" type="number" step="0.1" value="0" />
+                </label>
+                <label>
+                  <span>Offset Y</span>
+                  <input id="asset-fit-col-oy" type="number" step="0.1" value="0" />
+                </label>
+                <label>
+                  <span>Offset Z</span>
+                  <input id="asset-fit-col-oz" type="number" step="0.1" value="0" />
+                </label>
+              </div>
+            </details>
+            <div class="controls">
+              <button id="asset-fit-preview" type="button">Preview Asset</button>
+              <button id="asset-fit-apply" type="button">Apply To Prefab</button>
+              <button id="asset-fit-reset" class="secondary" type="button">Load Prefab Defaults</button>
+            </div>
+            <div id="asset-fit-canvas" class="asset-fit-canvas" aria-label="Asset fit preview viewport"></div>
+            <pre id="asset-fit-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="inspect">
+        <details class="section tool-section" data-pane="world">
           <summary class="section-head">
             <h2>Selection</h2>
             <span>Entity JSON</span>
@@ -503,7 +633,7 @@ async function bootstrap(): Promise<void> {
             <pre id="selection"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime" open>
+        <details class="section tool-section" data-pane="play" open>
           <summary class="section-head">
             <h2>Issues</h2>
             <span>Command/runtime</span>
@@ -512,7 +642,7 @@ async function bootstrap(): Promise<void> {
             <pre id="issues"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime">
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Iteration</h2>
             <span>Suggested next actions</span>
@@ -521,7 +651,7 @@ async function bootstrap(): Promise<void> {
             <div id="iteration-suggestions" class="iteration-suggestions"></div>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime">
+        <details class="section tool-section" data-pane="play">
           <summary class="section-head">
             <h2>Playtest</h2>
             <span>Session reports</span>
@@ -546,7 +676,7 @@ async function bootstrap(): Promise<void> {
             <pre id="playtest-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="runtime">
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Events</h2>
             <span>Recent runtime log</span>
@@ -557,18 +687,6 @@ async function bootstrap(): Promise<void> {
         </details>
         </div>
       </aside>
-      <main class="viewport">
-        <div class="viewport-head">
-          <div>
-            <span class="eyebrow">Direction</span>
-            <strong>Semantic world runtime first, genre modules second.</strong>
-          </div>
-          <div class="viewport-actions">
-            <button id="open-docs" class="secondary chrome-toggle" type="button">Docs</button>
-            <button id="toggle-sidebar" class="secondary chrome-toggle" type="button" aria-expanded="true">Hide Tools</button>
-            <div id="runtime-stats" class="runtime-stats"></div>
-          </div>
-        </div>
         <div id="canvas-root" class="canvas-root" tabindex="0" aria-label="Groundtruth viewport">
           <div id="playtest-hud" class="playtest-hud"></div>
         </div>
@@ -577,7 +695,6 @@ async function bootstrap(): Promise<void> {
     </div>
     <input id="snapshot-file" type="file" accept="application/json" hidden />
     <input id="project-file" type="file" accept="application/json" hidden />
-    <input id="playable-file" type="file" accept="application/json" hidden />
     <div id="docs-modal" class="docs-modal hidden" aria-hidden="true">
       <div class="docs-shell" role="dialog" aria-modal="true" aria-labelledby="docs-title">
         <div class="docs-head">
@@ -602,7 +719,9 @@ async function bootstrap(): Promise<void> {
   `;
 
   const canvasRoot = root.querySelector<HTMLElement>("#canvas-root");
+  const assetFitCanvasRoot = root.querySelector<HTMLElement>("#asset-fit-canvas");
   const shell = root.querySelector<HTMLElement>(".shell");
+  const workspaceOverviewCard = root.querySelector<HTMLElement>("#workspace-overview");
   const overviewNode = root.querySelector<HTMLElement>("#overview");
   const diagnosticsNode = root.querySelector<HTMLElement>("#diagnostics");
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
@@ -610,15 +729,28 @@ async function bootstrap(): Promise<void> {
   const sectorStatusNode = root.querySelector<HTMLElement>("#sector-status");
   const sceneInventoryNode = root.querySelector<HTMLElement>("#scene-inventory");
   const authoringPaletteNode = root.querySelector<HTMLElement>("#authoring-palette");
+  const authoringPrefabSummaryNode = root.querySelector<HTMLElement>("#authoring-prefab-summary");
   const featureTogglesNode = root.querySelector<HTMLElement>("#feature-toggles");
   const gameplayPolicySummaryNode = root.querySelector<HTMLElement>("#gameplay-policy-summary");
   const sceneSearchInput = root.querySelector<HTMLInputElement>("#scene-search");
   const sceneFilterInput = root.querySelector<HTMLSelectElement>("#scene-filter");
   const inspectorNode = root.querySelector<HTMLElement>("#inspector");
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
-  const modelScaleInput = root.querySelector<HTMLInputElement>("#model-scale");
-  const modelYawInput = root.querySelector<HTMLInputElement>("#model-yaw");
-  const modelOffsetYInput = root.querySelector<HTMLInputElement>("#model-offset-y");
+  const assetFitPrefabInput = root.querySelector<HTMLSelectElement>("#asset-fit-prefab");
+  const assetFitAnimationInput = root.querySelector<HTMLSelectElement>("#asset-fit-animation");
+  const assetFitAnimSpeedInput = root.querySelector<HTMLInputElement>("#asset-fit-anim-speed");
+  const assetFitScaleInput = root.querySelector<HTMLInputElement>("#asset-fit-scale");
+  const assetFitYawInput = root.querySelector<HTMLInputElement>("#asset-fit-yaw");
+  const assetFitOffsetYInput = root.querySelector<HTMLInputElement>("#asset-fit-offset-y");
+  const assetFitStatusNode = root.querySelector<HTMLElement>("#asset-fit-status");
+  const assetFitCollisionShapeInput = root.querySelector<HTMLSelectElement>("#asset-fit-collision-shape");
+  const assetFitSolidInput = root.querySelector<HTMLInputElement>("#asset-fit-solid");
+  const assetFitColSxInput = root.querySelector<HTMLInputElement>("#asset-fit-col-sx");
+  const assetFitColSyInput = root.querySelector<HTMLInputElement>("#asset-fit-col-sy");
+  const assetFitColSzInput = root.querySelector<HTMLInputElement>("#asset-fit-col-sz");
+  const assetFitColOxInput = root.querySelector<HTMLInputElement>("#asset-fit-col-ox");
+  const assetFitColOyInput = root.querySelector<HTMLInputElement>("#asset-fit-col-oy");
+  const assetFitColOzInput = root.querySelector<HTMLInputElement>("#asset-fit-col-oz");
   const selectionNode = root.querySelector<HTMLElement>("#selection");
   const issuesNode = root.querySelector<HTMLElement>("#issues");
   const iterationSuggestionsNode = root.querySelector<HTMLElement>("#iteration-suggestions");
@@ -626,6 +758,7 @@ async function bootstrap(): Promise<void> {
   const playtestStatusNode = root.querySelector<HTMLElement>("#playtest-status");
   const runtimeStatsNode = root.querySelector<HTMLElement>("#runtime-stats");
   const toggleSidebarButton = root.querySelector<HTMLButtonElement>("#toggle-sidebar");
+  const toggleHudButton = root.querySelector<HTMLButtonElement>("#toggle-hud");
   const openDocsButton = root.querySelector<HTMLButtonElement>("#open-docs");
   const docsModal = root.querySelector<HTMLElement>("#docs-modal");
   const docsTitleNode = root.querySelector<HTMLElement>("#docs-title");
@@ -640,7 +773,6 @@ async function bootstrap(): Promise<void> {
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
   const projectFileInput = root.querySelector<HTMLInputElement>("#project-file");
-  const playableFileInput = root.querySelector<HTMLInputElement>("#playable-file");
   const projectNameInput = root.querySelector<HTMLInputElement>("#project-name");
   const playtestLabelInput = root.querySelector<HTMLInputElement>("#playtest-label");
   const playtestNoteInput = root.querySelector<HTMLInputElement>("#playtest-note");
@@ -648,6 +780,7 @@ async function bootstrap(): Promise<void> {
   const projectTemplateSummaryNode = root.querySelector<HTMLElement>("#project-template-summary");
   const projectWorldInput = root.querySelector<HTMLSelectElement>("#project-world");
   const projectWorldSummaryNode = root.querySelector<HTMLElement>("#project-world-summary");
+  const projectSaveSummaryNode = root.querySelector<HTMLElement>("#project-save-summary");
   const worldRecipeInput = root.querySelector<HTMLSelectElement>("#world-recipe");
   const worldRecipeSummaryNode = root.querySelector<HTMLElement>("#world-recipe-summary");
   const worldStampInput = root.querySelector<HTMLSelectElement>("#world-stamp");
@@ -666,6 +799,7 @@ async function bootstrap(): Promise<void> {
   const policyLeashScaleInput = root.querySelector<HTMLInputElement>("#policy-leash-scale");
   const gameModeTemplateInput = root.querySelector<HTMLSelectElement>("#game-mode-template");
   const authoringModeInput = root.querySelector<HTMLInputElement>("#authoring-mode");
+  const authoringToolInput = root.querySelector<HTMLInputElement>("#authoring-tool");
   const authoringPrefabInput = root.querySelector<HTMLSelectElement>("#authoring-prefab");
   const authoringScaleInput = root.querySelector<HTMLInputElement>("#authoring-scale");
   const authoringYawInput = root.querySelector<HTMLInputElement>("#authoring-yaw");
@@ -682,10 +816,16 @@ async function bootstrap(): Promise<void> {
   const toggleInteractionInput = root.querySelector<HTMLInputElement>("#toggle-interaction");
   const toggleAggroInput = root.querySelector<HTMLInputElement>("#toggle-aggro");
   const toggleSectorsInput = root.querySelector<HTMLInputElement>("#toggle-sectors");
+  const toggleHudStatusInput = root.querySelector<HTMLInputElement>("#toggle-hud-status");
+  const toggleHudFindingsInput = root.querySelector<HTMLInputElement>("#toggle-hud-findings");
+  const toggleHudEvaluationInput = root.querySelector<HTMLInputElement>("#toggle-hud-evaluation");
+  const toggleHudDebugInput = root.querySelector<HTMLInputElement>("#toggle-hud-debug");
 
   if (
     !canvasRoot ||
+    !assetFitCanvasRoot ||
     !shell ||
+    !workspaceOverviewCard ||
     !overviewNode ||
     !diagnosticsNode ||
     !evaluationNode ||
@@ -693,15 +833,28 @@ async function bootstrap(): Promise<void> {
     !sectorStatusNode ||
     !sceneInventoryNode ||
     !authoringPaletteNode ||
+    !authoringPrefabSummaryNode ||
     !featureTogglesNode ||
     !gameplayPolicySummaryNode ||
     !sceneSearchInput ||
     !sceneFilterInput ||
     !inspectorNode ||
     !assetStatusNode ||
-    !modelScaleInput ||
-    !modelYawInput ||
-    !modelOffsetYInput ||
+    !assetFitPrefabInput ||
+    !assetFitAnimationInput ||
+    !assetFitAnimSpeedInput ||
+    !assetFitScaleInput ||
+    !assetFitYawInput ||
+    !assetFitOffsetYInput ||
+    !assetFitStatusNode ||
+    !assetFitCollisionShapeInput ||
+    !assetFitSolidInput ||
+    !assetFitColSxInput ||
+    !assetFitColSyInput ||
+    !assetFitColSzInput ||
+    !assetFitColOxInput ||
+    !assetFitColOyInput ||
+    !assetFitColOzInput ||
     !selectionNode ||
     !issuesNode ||
     !iterationSuggestionsNode ||
@@ -709,6 +862,7 @@ async function bootstrap(): Promise<void> {
     !playtestStatusNode ||
     !runtimeStatsNode ||
     !toggleSidebarButton ||
+    !toggleHudButton ||
     !openDocsButton ||
     !docsModal ||
     !docsTitleNode ||
@@ -723,7 +877,6 @@ async function bootstrap(): Promise<void> {
     !playtestHud ||
     !snapshotFileInput ||
     !projectFileInput ||
-    !playableFileInput ||
     !projectNameInput ||
     !playtestLabelInput ||
     !playtestNoteInput ||
@@ -731,6 +884,7 @@ async function bootstrap(): Promise<void> {
     !projectTemplateSummaryNode ||
     !projectWorldInput ||
     !projectWorldSummaryNode ||
+    !projectSaveSummaryNode ||
     !worldRecipeInput ||
     !worldRecipeSummaryNode ||
     !worldStampInput ||
@@ -749,6 +903,7 @@ async function bootstrap(): Promise<void> {
     !policyLeashScaleInput ||
     !gameModeTemplateInput ||
     !authoringModeInput ||
+    !authoringToolInput ||
     !authoringPrefabInput ||
     !authoringScaleInput ||
     !authoringYawInput ||
@@ -764,19 +919,92 @@ async function bootstrap(): Promise<void> {
     !toggleCombatInput ||
     !toggleInteractionInput ||
     !toggleAggroInput ||
-    !toggleSectorsInput
+    !toggleSectorsInput ||
+    !toggleHudStatusInput ||
+    !toggleHudFindingsInput ||
+    !toggleHudEvaluationInput ||
+    !toggleHudDebugInput
   ) {
     throw new Error("UI bootstrap failed.");
   }
 
+  const remapAssetUri = (uri: string): string => {
+    switch (uri) {
+      case "/assets/urban_models/Cones%20%26%20Barriers/Concrete%20Barriers/Jersey_barrier.glb":
+        return "/assets/urban_runtime/props/jersey_barrier.glb";
+      case "/assets/urban_models/Cones%20%26%20Barriers/Cones/Construction_cone.glb":
+        return "/assets/urban_runtime/props/construction_cone.glb";
+      case "/assets/urban_models/Walls%20%26%20Fences/metal_fence/metalfence_both_sides_topbar.glb":
+        return "/assets/urban_runtime/props/metal_fence.glb";
+      case "/assets/urban_models/Walls%20%26%20Fences/plaster_wall/plaster_wall.glb":
+        return "/assets/urban_runtime/props/plaster_wall.glb";
+      default:
+        return uri;
+    }
+  };
+
+  const migrateWorldPrefabAssetUris = (world: WorldDocument): WorldDocument => {
+    const prefabs = Object.fromEntries(
+      Object.entries(world.prefabs).map(([prefabId, prefab]) => {
+        const render = prefab.components?.render;
+        if (!render || render.type !== "model") {
+          return [prefabId, prefab];
+        }
+        const nextUri = remapAssetUri(render.uri);
+        if (nextUri === render.uri) {
+          return [prefabId, prefab];
+        }
+        return [
+          prefabId,
+          {
+            ...prefab,
+            components: {
+              ...prefab.components,
+              render: {
+                ...render,
+                uri: nextUri,
+              },
+            },
+          },
+        ];
+      }),
+    );
+    return {
+      ...world,
+      prefabs,
+    };
+  };
+
+  const migrateProjectPrefabAssetUris = (project: ProjectDocument): ProjectDocument => ({
+    ...project,
+    worlds: Object.fromEntries(
+      Object.entries(project.worlds).map(([worldId, world]) => [worldId, migrateWorldPrefabAssetUris(world)]),
+    ),
+  });
+
   const bootConfig = readBootConfig();
   const bootProject = await loadBootProject(bootConfig);
-  const store = new WorldStore(bootProject ?? makeFlatOutpostWorld());
-  let authoringMode: "play" | "place" | "move" | "resize" | "zone" = "play";
+  const migratedBootProject = bootProject ? migrateProjectPrefabAssetUris(bootProject) : null;
+  const autosavedProject = bootConfig.mode === "player" ? null : loadEditorAutosaveProject();
+  const migratedAutosavedProject = autosavedProject ? migrateProjectPrefabAssetUris(autosavedProject) : null;
+  const store = new WorldStore(migratedBootProject ?? migratedAutosavedProject ?? makeFlatOutpostWorld());
+  let projectSaveHandle: SaveFileHandleLike | null = null;
+  let lastSavedProjectSignature: string | null = bootConfig.mode === "player"
+    ? null
+    : migratedAutosavedProject
+      ? null
+      : JSON.stringify(store.getProject());
+  let lastSavedAt: string | null = null;
+  let lastSavedTarget = migratedAutosavedProject ? "Autosave recovery" : null as string | null;
+  let interactionMode: "play" | "edit" = "play";
+  let editTool: "place" | "move" | "resize" | "zone" = "place";
+  const hudVisibility = {
+    status: true,
+    findings: true,
+    evaluation: true,
+    debug: true,
+  };
   const scene = new SceneRuntime(canvasRoot, (selection: SelectionTarget) => {
-    if (authoringMode !== "play") {
-      return;
-    }
     if (selection.type === "entity") {
       selectEntity(selection.id);
       return;
@@ -788,18 +1016,23 @@ async function bootstrap(): Promise<void> {
     }
     selectEntity(null);
   });
+  const assetFitScene = new SceneRuntime(assetFitCanvasRoot, () => {
+    // Asset fit preview is read-only.
+  });
   const physics = await PhysicsRuntime.create(store.getWorld().settings.gravity.y);
   const input = new InputController();
   let runtimeModule = createRuntimeModule(store.getWorld().gameMode);
   let lastFrameTime = performance.now();
-  let sidebarCollapsed = bootConfig.mode === "player";
-  let activeSidebarPane: "build" | "inspect" | "runtime" = "build";
+  let sidebarCollapsed = true;
+  let hudVisible = true;
+  let activeSidebarPane: "project" | "world" | "play" | "assets" | "debug" = "play";
   let activeHelpAudience: HelpAudience = "human";
   let activeHelpSectionId = helpContentByAudience.human[0]?.id ?? "";
   let pendingWorldRebuild = false;
-  let worldSwapState: "idle" | "queued" | "rebuilding" | "failed" = "idle";
+  let worldSwapState: "idle" | "queued" | "rebuilding" | "loading" | "failed" = "idle";
   let stressCooldownFrames = 0;
-  let modelTuningBoundEntityId: string | null = null;
+  let assetFitBoundPrefabId = "";
+  let assetFitAvailableOptions: Array<{ value: string; label: string }> = [];
   let selectedTransformBoundEntityId: string | null = null;
   let selectedZoneBoundZoneId: string | null = null;
   let placedEntityCounter = 1;
@@ -830,6 +1063,17 @@ async function bootstrap(): Promise<void> {
     }
   };
 
+  const getCurrentProjectSignature = (): string => JSON.stringify(store.getProject());
+
+  const isProjectDirty = (): boolean =>
+    lastSavedProjectSignature === null || getCurrentProjectSignature() !== lastSavedProjectSignature;
+
+  const markProjectSaved = (target: string): void => {
+    lastSavedProjectSignature = getCurrentProjectSignature();
+    lastSavedAt = new Date().toISOString();
+    lastSavedTarget = target;
+  };
+
   const ensureRuntimeModule = (): void => {
     const nextMode = store.peekWorld().gameMode;
     if (runtimeModule.id === nextMode) {
@@ -854,6 +1098,45 @@ async function bootstrap(): Promise<void> {
     }) as T;
   };
 
+  const mergePrefabOverrides = (
+    baseWorld: WorldDocument,
+    sourceWorld: WorldDocument,
+  ): WorldDocument => ({
+    ...baseWorld,
+    prefabs: Object.fromEntries(
+      Object.entries({
+        ...baseWorld.prefabs,
+        ...sourceWorld.prefabs,
+      }).map(([prefabId, prefab]) => {
+        const basePrefab = baseWorld.prefabs[prefabId];
+        const render = prefab.components?.render;
+        const baseRender = basePrefab?.components?.render;
+        return [
+          prefabId,
+          {
+            ...prefab,
+            components: {
+              ...prefab.components,
+              render: render && render.type === "model"
+                ? {
+                    ...render,
+                    uri: baseRender && baseRender.type === "model" ? baseRender.uri : render.uri,
+                    format: baseRender && baseRender.type === "model" ? baseRender.format : render.format,
+                    animationSources: baseRender && baseRender.type === "model"
+                      ? baseRender.animationSources
+                      : render.animationSources,
+                    clips: baseRender && baseRender.type === "model"
+                      ? baseRender.clips
+                      : render.clips,
+                  }
+                : render,
+            },
+          },
+        ];
+      }),
+    ),
+  });
+
   const getSelectedZone = (world = store.peekWorld()) =>
     selectedZoneId ? world.zones.find((zone) => zone.id === selectedZoneId) ?? null : null;
 
@@ -877,37 +1160,6 @@ async function bootstrap(): Promise<void> {
     if (selectedZoneId && !world.zones.some((zone) => zone.id === selectedZoneId)) {
       selectedZoneId = null;
     }
-  };
-
-  const syncModelTuningInputs = (force = false): void => {
-    const selectedEntityId = store.getSelectedEntityId();
-    if (!force && selectedEntityId === modelTuningBoundEntityId) {
-      return;
-    }
-    modelTuningBoundEntityId = selectedEntityId;
-    if (!selectedEntityId) {
-      modelScaleInput.value = "1";
-      modelYawInput.value = "0";
-      modelOffsetYInput.value = "0";
-      return;
-    }
-
-    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
-    if (!entity) {
-      return;
-    }
-    const resolved = resolveEntity(store.peekWorld(), entity);
-    const render = resolved.components.render;
-    if (!render || render.type !== "model") {
-      modelScaleInput.value = "1";
-      modelYawInput.value = "0";
-      modelOffsetYInput.value = "0";
-      return;
-    }
-
-    modelScaleInput.value = String(render.modelScale?.x ?? 1);
-    modelYawInput.value = String(((render.modelRotation?.y ?? 0) * 180) / Math.PI);
-    modelOffsetYInput.value = String(render.modelOffset?.y ?? 0);
   };
 
   const syncSelectedTransformInputs = (force = false): void => {
@@ -942,53 +1194,6 @@ async function bootstrap(): Promise<void> {
     authoringZoneKindInput.value = zone.kind;
     authoringZoneShapeInput.value = zone.shape.type;
     authoringZoneSizeInput.value = String(zone.shape.type === "sphere" ? zone.shape.radius : zone.shape.size.x);
-  };
-
-  const applySelectedModelTuning = (): void => {
-    const selectedEntityId = store.getSelectedEntityId();
-    if (!selectedEntityId) {
-      appendEvent("Model tuning skipped: no selected entity.");
-      return;
-    }
-    const entity = store.peekWorld().entities.find((item) => item.id === selectedEntityId);
-    if (!entity) {
-      appendEvent(`Model tuning skipped: missing entity '${selectedEntityId}'.`);
-      return;
-    }
-
-    const resolved = resolveEntity(store.peekWorld(), entity);
-    const render = resolved.components.render;
-    if (!render || render.type !== "model") {
-      appendEvent(`Model tuning skipped: '${selectedEntityId}' is not a model entity.`);
-      return;
-    }
-
-    const currentScale = render.modelScale ?? makeVec3(1, 1, 1);
-    const currentOffset = render.modelOffset ?? makeVec3(0, 0, 0);
-    const nextScale = readNumber(modelScaleInput.value, currentScale.x);
-    const nextOffsetY = readNumber(modelOffsetYInput.value, currentOffset.y);
-    const nextYawDegrees = readNumber(modelYawInput.value, (render.modelRotation?.y ?? 0) * (180 / Math.PI));
-    const nextRender: ModelRenderComponent = {
-      ...render,
-      modelScale: makeVec3(
-        nextScale,
-        nextScale,
-        nextScale,
-      ),
-      modelOffset: makeVec3(
-        currentOffset.x,
-        nextOffsetY,
-        currentOffset.z,
-      ),
-      modelRotation: {
-        x: render.modelRotation?.x ?? 0,
-        y: (nextYawDegrees * Math.PI) / 180,
-        z: render.modelRotation?.z ?? 0,
-      },
-    };
-
-    store.updateEntityComponents(selectedEntityId, { render: nextRender }, true);
-    appendEvent(`Applied model tuning to '${selectedEntityId}'.`);
   };
 
   const applySelectedEntityTransform = (): void => {
@@ -1048,11 +1253,49 @@ async function bootstrap(): Promise<void> {
   };
 
   const syncAuthoringMode = (): void => {
-    authoringModeInput.value = authoringMode;
-    if (authoringMode !== "move" && authoringMode !== "resize") {
+    const playButton = root.querySelector<HTMLButtonElement>("#mode-play");
+    const editButton = root.querySelector<HTMLButtonElement>("#mode-edit");
+    const placeButton = root.querySelector<HTMLButtonElement>("#mode-place");
+    const moveButton = root.querySelector<HTMLButtonElement>("#mode-move");
+    const resizeButton = root.querySelector<HTMLButtonElement>("#mode-resize");
+    const zoneButton = root.querySelector<HTMLButtonElement>("#mode-zone");
+    const authoringShell = root.querySelector<HTMLElement>(".authoring-shell");
+    const transformButton = root.querySelector<HTMLButtonElement>("#apply-selected-transform");
+    const deleteButton = root.querySelector<HTMLButtonElement>("#delete-selected");
+    authoringModeInput.value = interactionMode;
+    authoringToolInput.value = interactionMode === "edit" ? editTool : "n/a";
+    if (editTool !== "move" && editTool !== "resize") {
       stopAuthoringDrag();
     }
-    if (authoringMode === "play") {
+    const editControlsDisabled = interactionMode !== "edit";
+    authoringPrefabInput.disabled = editControlsDisabled;
+    authoringScaleInput.disabled = editControlsDisabled;
+    authoringYawInput.disabled = editControlsDisabled;
+    authoringZoneKindInput.disabled = editControlsDisabled;
+    authoringZoneShapeInput.disabled = editControlsDisabled;
+    authoringZoneSizeInput.disabled = editControlsDisabled;
+    if (playButton) {
+      playButton.classList.toggle("active", interactionMode === "play");
+    }
+    if (editButton) {
+      editButton.classList.toggle("active", interactionMode === "edit");
+    }
+    for (const [button, tool] of [
+      [placeButton, "place"],
+      [moveButton, "move"],
+      [resizeButton, "resize"],
+      [zoneButton, "zone"],
+    ] as const) {
+      if (!button) {
+        continue;
+      }
+      button.disabled = editControlsDisabled;
+      button.classList.toggle("active", interactionMode === "edit" && editTool === tool);
+    }
+    authoringShell?.classList.toggle("edit-active", interactionMode === "edit");
+    transformButton!.disabled = editControlsDisabled;
+    deleteButton!.disabled = editControlsDisabled;
+    if (interactionMode === "play") {
       requestAnimationFrame(() => canvasRoot.focus());
     }
   };
@@ -1062,10 +1305,352 @@ async function bootstrap(): Promise<void> {
     const prefabIds = Object.keys(world.prefabs).sort();
     const currentValue = authoringPrefabInput.value || prefabIds[0] || "";
     authoringPrefabInput.innerHTML = prefabIds
-      .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(prefabId)}</option>`)
+      .map((prefabId) => {
+        const prefab = world.prefabs[prefabId];
+        const label = prefab?.name ?? prefabId;
+        return `<option value="${escapeHtml(prefabId)}">${escapeHtml(label)}</option>`;
+      })
       .join("");
     authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0] ?? "";
+    const selectedPrefab = world.prefabs[authoringPrefabInput.value];
+    authoringPrefabSummaryNode.innerHTML = selectedPrefab
+      ? [
+        renderOverviewRow("Selected", selectedPrefab.name),
+        renderOverviewRow("Id", selectedPrefab.id),
+        renderOverviewRow("Category", selectedPrefab.category ?? "uncategorized"),
+        renderOverviewRow("Library", `${prefabIds.length} prefabs below`),
+      ].join("")
+      : '<div class="inventory-empty">No prefabs available in the current world.</div>';
     authoringPaletteNode.innerHTML = renderPrefabPalette(world, authoringPrefabInput.value);
+  };
+
+  const listModelPrefabIds = (world = store.peekWorld()): string[] =>
+    Object.keys(world.prefabs)
+      .filter((prefabId) => world.prefabs[prefabId]?.components?.render?.type === "model")
+      .sort();
+
+  const getAssetFitPrefab = () => {
+    const world = store.peekWorld();
+    const prefabId = assetFitPrefabInput.value;
+    const prefab = world.prefabs[prefabId];
+    const render = prefab?.components?.render;
+    if (!prefab || !render || render.type !== "model") {
+      return null;
+    }
+    return { prefabId, prefab, render };
+  };
+
+  const parseAssetFitAnimationSelection = (
+    selectedValue: string,
+    render: ModelRenderComponent,
+    speed?: number,
+  ): { animation: AnimationComponent; render: ModelRenderComponent } => {
+    const animSpeed = speed != null && speed !== 1 ? speed : undefined;
+    if (selectedValue.startsWith("raw:")) {
+      const clipName = selectedValue.slice(4);
+      return {
+        animation: {
+          state: "__preview__",
+          loop: "repeat",
+          fadeSeconds: 0.12,
+          speed: animSpeed,
+        },
+        render: {
+          ...render,
+          clips: {
+            ...(render.clips ?? {}),
+            __preview__: clipName,
+          },
+        },
+      };
+    }
+    return {
+      animation: {
+        state: selectedValue || "idle",
+        loop: ["attack", "death", "hurt", "rise"].includes(selectedValue) ? "once" : "repeat",
+        fadeSeconds: 0.12,
+        speed: animSpeed,
+      },
+      render,
+    };
+  };
+
+  const syncAssetFitPrefabs = (): void => {
+    const prefabIds = listModelPrefabIds();
+    const nextValue = prefabIds.includes(assetFitPrefabInput.value)
+      ? assetFitPrefabInput.value
+      : prefabIds[0] ?? "";
+    assetFitPrefabInput.innerHTML = prefabIds
+      .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(store.peekWorld().prefabs[prefabId]?.name ?? prefabId)}</option>`)
+      .join("");
+    assetFitPrefabInput.value = nextValue;
+  };
+
+  const syncAssetFitInputs = (force = false): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    const prefabId = assetFitPrefab?.prefabId ?? "";
+    if (!force && prefabId === assetFitBoundPrefabId) {
+      return;
+    }
+    assetFitBoundPrefabId = prefabId;
+    if (!assetFitPrefab) {
+      assetFitScaleInput.value = "1";
+      assetFitYawInput.value = "0";
+      assetFitOffsetYInput.value = "0";
+      assetFitAnimationInput.innerHTML = "";
+      assetFitAnimSpeedInput.value = "1";
+      assetFitAvailableOptions = [];
+      assetFitCollisionShapeInput.value = "none";
+      assetFitSolidInput.checked = true;
+      assetFitColSxInput.value = "1";
+      assetFitColSyInput.value = "1";
+      assetFitColSzInput.value = "1";
+      return;
+    }
+    assetFitScaleInput.value = String(assetFitPrefab.render.modelScale?.x ?? 1);
+    assetFitYawInput.value = String(((assetFitPrefab.render.modelRotation?.y ?? 0) * 180) / Math.PI);
+    assetFitOffsetYInput.value = String(assetFitPrefab.render.modelOffset?.y ?? 0);
+    assetFitAnimSpeedInput.value = "1";
+
+    // Populate collision fields from prefab physics component
+    const physics = assetFitPrefab.prefab.components?.physics;
+    const resetCollisionOffsets = () => {
+      assetFitColOxInput.value = "0";
+      assetFitColOyInput.value = "0";
+      assetFitColOzInput.value = "0";
+    };
+    if (physics && physics.shape.type === "compound" && physics.shape.children.length === 1) {
+      // Single-child compound = a shape with an offset
+      const child = physics.shape.children[0];
+      assetFitCollisionShapeInput.value = child.shape.type;
+      assetFitSolidInput.checked = !physics.sensor;
+      assetFitColOxInput.value = String(child.offset.x);
+      assetFitColOyInput.value = String(child.offset.y);
+      assetFitColOzInput.value = String(child.offset.z);
+      if (child.shape.type === "box") {
+        assetFitColSxInput.value = String(child.shape.size.x);
+        assetFitColSyInput.value = String(child.shape.size.y);
+        assetFitColSzInput.value = String(child.shape.size.z);
+      } else if (child.shape.type === "cylinder" || child.shape.type === "capsule") {
+        assetFitColSxInput.value = String(child.shape.radius);
+        assetFitColSyInput.value = String(child.shape.halfHeight * 2);
+        assetFitColSzInput.value = String(child.shape.radius);
+      } else if (child.shape.type === "sphere") {
+        assetFitColSxInput.value = String(child.shape.radius);
+        assetFitColSyInput.value = String(child.shape.radius);
+        assetFitColSzInput.value = String(child.shape.radius);
+      }
+    } else if (physics && physics.shape.type !== "compound") {
+      assetFitCollisionShapeInput.value = physics.shape.type;
+      assetFitSolidInput.checked = !physics.sensor;
+      resetCollisionOffsets();
+      if (physics.shape.type === "box") {
+        assetFitColSxInput.value = String(physics.shape.size.x);
+        assetFitColSyInput.value = String(physics.shape.size.y);
+        assetFitColSzInput.value = String(physics.shape.size.z);
+      } else if (physics.shape.type === "cylinder" || physics.shape.type === "capsule") {
+        assetFitColSxInput.value = String(physics.shape.radius);
+        assetFitColSyInput.value = String(physics.shape.halfHeight * 2);
+        assetFitColSzInput.value = String(physics.shape.radius);
+      } else if (physics.shape.type === "sphere") {
+        assetFitColSxInput.value = String(physics.shape.radius);
+        assetFitColSyInput.value = String(physics.shape.radius);
+        assetFitColSzInput.value = String(physics.shape.radius);
+      }
+    } else if (!physics) {
+      assetFitCollisionShapeInput.value = "none";
+      assetFitSolidInput.checked = true;
+      assetFitColSxInput.value = "1";
+      assetFitColSyInput.value = "1";
+      assetFitColSzInput.value = "1";
+      resetCollisionOffsets();
+    }
+
+    const semanticStates = Array.from(
+      new Set([
+        ...Object.keys(assetFitPrefab.render.clips ?? {}),
+        "idle",
+      ]),
+    );
+    assetFitAvailableOptions = semanticStates.map((state) => ({
+      value: state,
+      label: `state:${state}`,
+    }));
+    assetFitAnimationInput.innerHTML = assetFitAvailableOptions
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+      .join("");
+    assetFitAnimationInput.value = semanticStates.includes("idle") ? "idle" : semanticStates[0] ?? "";
+  };
+
+  const syncAssetFitAnimationOptions = (): void => {
+    const selectedValue = assetFitAnimationInput.value;
+    assetFitAnimationInput.innerHTML = assetFitAvailableOptions
+      .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
+      .join("");
+    assetFitAnimationInput.value = assetFitAvailableOptions.some((option) => option.value === selectedValue)
+      ? selectedValue
+      : assetFitAvailableOptions[0]?.value ?? "";
+  };
+
+  const updateAssetFitOptionsFromPreview = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      assetFitAvailableOptions = [];
+      syncAssetFitAnimationOptions();
+      return;
+    }
+    const semanticStates = Array.from(
+      new Set([
+        ...Object.keys(assetFitPrefab.render.clips ?? {}),
+        "idle",
+      ]),
+    ).map((state) => ({
+      value: state,
+      label: `state:${state}`,
+    }));
+    const previewReport = assetFitScene.getAssetFitPreviewReport();
+    const rawClips = (previewReport?.availableClipNames ?? [])
+      .map((clipName) => ({
+        value: `raw:${clipName}`,
+        label: `clip:${clipName}`,
+      }));
+    assetFitAvailableOptions = [...semanticStates, ...rawClips];
+    syncAssetFitAnimationOptions();
+  };
+
+  const refreshAssetFitPreview = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      assetFitScene.setAssetFitPreview(null, null, null);
+      assetFitStatusNode.textContent = "Select a model prefab to preview it on the floor.";
+      return;
+    }
+    syncViewportSizes();
+    const nextScale = readNumber(assetFitScaleInput.value, assetFitPrefab.render.modelScale?.x ?? 1);
+    const nextOffsetY = readNumber(assetFitOffsetYInput.value, assetFitPrefab.render.modelOffset?.y ?? 0);
+    const nextYawDegrees = readNumber(assetFitYawInput.value, ((assetFitPrefab.render.modelRotation?.y ?? 0) * 180) / Math.PI);
+    const adjustedRender: ModelRenderComponent = {
+      ...assetFitPrefab.render,
+      modelScale: makeVec3(nextScale, nextScale, nextScale),
+      modelOffset: makeVec3(
+        assetFitPrefab.render.modelOffset?.x ?? 0,
+        nextOffsetY,
+        assetFitPrefab.render.modelOffset?.z ?? 0,
+      ),
+      modelRotation: {
+        x: assetFitPrefab.render.modelRotation?.x ?? 0,
+        y: (nextYawDegrees * Math.PI) / 180,
+        z: assetFitPrefab.render.modelRotation?.z ?? 0,
+      },
+    };
+    const animSpeed = readNumber(assetFitAnimSpeedInput.value, 1);
+    const previewChoice = parseAssetFitAnimationSelection(assetFitAnimationInput.value || "idle", adjustedRender, animSpeed);
+    const previewPhysics = buildAssetFitPhysicsShape();
+    assetFitScene.setAssetFitPreview(
+      assetFitPrefab.prefabId,
+      assetFitPrefab.prefab.name,
+      previewChoice.render,
+      previewChoice.animation,
+      previewPhysics,
+    );
+    const previewReport = assetFitScene.getAssetFitPreviewReport();
+    assetFitStatusNode.textContent = previewReport
+      ? formatSingleAssetReport(previewReport)
+      : `Previewing '${assetFitPrefab.prefab.name}' on the floor.`;
+    updateAssetFitOptionsFromPreview();
+  };
+
+  const buildAssetFitPrimitiveShape = (): import("./core/schema").PhysicsPrimitiveShape | null => {
+    const shapeType = assetFitCollisionShapeInput.value;
+    if (shapeType === "none") return null;
+    const sx = readNumber(assetFitColSxInput.value, 1);
+    const sy = readNumber(assetFitColSyInput.value, 1);
+    const sz = readNumber(assetFitColSzInput.value, 1);
+    switch (shapeType) {
+      case "box":
+        return { type: "box", size: makeVec3(sx, sy, sz) };
+      case "cylinder":
+        return { type: "cylinder", radius: sx, halfHeight: sy * 0.5 };
+      case "capsule":
+        return { type: "capsule", radius: sx, halfHeight: sy * 0.5 };
+      case "sphere":
+        return { type: "sphere", radius: sx };
+      default:
+        return null;
+    }
+  };
+
+  const buildAssetFitCollisionOffset = () => ({
+    x: readNumber(assetFitColOxInput.value, 0),
+    y: readNumber(assetFitColOyInput.value, 0),
+    z: readNumber(assetFitColOzInput.value, 0),
+  });
+
+  const buildAssetFitPhysicsShape = (): import("./core/schema").PhysicsShape | null => {
+    const primitive = buildAssetFitPrimitiveShape();
+    if (!primitive) return null;
+    const offset = buildAssetFitCollisionOffset();
+    const hasOffset = offset.x !== 0 || offset.y !== 0 || offset.z !== 0;
+    if (hasOffset) {
+      return {
+        type: "compound",
+        children: [{ shape: primitive, offset }],
+      };
+    }
+    return primitive;
+  };
+
+  const buildAssetFitPhysicsComponent = (): { body: string; shape: Record<string, unknown>; sensor?: boolean } | undefined => {
+    const shape = buildAssetFitPhysicsShape();
+    if (!shape) return undefined;
+    const isSensor = !assetFitSolidInput.checked;
+    const existingBody = getAssetFitPrefab()?.prefab.components?.physics?.body ?? "static";
+    return { body: existingBody, shape: shape as unknown as Record<string, unknown>, ...(isSensor ? { sensor: true } : {}) };
+  };
+
+  const applyAssetFitToPrefab = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      appendEvent("Asset fit apply skipped: no model prefab selected.");
+      return;
+    }
+    const currentRender = assetFitPrefab.render;
+    const nextScale = readNumber(assetFitScaleInput.value, currentRender.modelScale?.x ?? 1);
+    const nextOffsetY = readNumber(assetFitOffsetYInput.value, currentRender.modelOffset?.y ?? 0);
+    const nextYawDegrees = readNumber(assetFitYawInput.value, ((currentRender.modelRotation?.y ?? 0) * 180) / Math.PI);
+    const nextPhysics = buildAssetFitPhysicsComponent();
+    const updatedComponents: Record<string, unknown> = {
+      ...assetFitPrefab.prefab.components,
+      render: {
+        ...currentRender,
+        modelScale: makeVec3(nextScale, nextScale, nextScale),
+        modelOffset: makeVec3(
+          currentRender.modelOffset?.x ?? 0,
+          nextOffsetY,
+          currentRender.modelOffset?.z ?? 0,
+        ),
+        modelRotation: {
+          x: currentRender.modelRotation?.x ?? 0,
+          y: (nextYawDegrees * Math.PI) / 180,
+          z: currentRender.modelRotation?.z ?? 0,
+        },
+      },
+    };
+    if (nextPhysics) {
+      updatedComponents.physics = nextPhysics;
+    } else {
+      delete updatedComponents.physics;
+    }
+    store.apply([
+      {
+        op: "upsert_prefab",
+        prefab: {
+          ...assetFitPrefab.prefab,
+          components: updatedComponents as typeof assetFitPrefab.prefab.components,
+        },
+      },
+    ]);
+    appendEvent(`Applied asset fit to prefab '${assetFitPrefab.prefabId}' (collision: ${assetFitCollisionShapeInput.value}).`);
   };
 
   const syncGameModeTemplate = (): void => {
@@ -1082,12 +1667,17 @@ async function bootstrap(): Promise<void> {
   };
 
   const syncProjectTemplates = (): void => {
+    const projectTemplateId = store.peekProject().metadata.templateId;
+    const selectedValue = projectTemplateInput.value;
+    const preferredValue = projectTemplates.some((template) => template.id === selectedValue)
+      ? selectedValue
+      : projectTemplates.some((template) => template.id === projectTemplateId)
+        ? projectTemplateId ?? ""
+        : projectTemplates[0]?.id ?? "";
     projectTemplateInput.innerHTML = projectTemplates
       .map((template) => `<option value="${template.id}">${escapeHtml(template.label)}</option>`)
       .join("");
-    if (!projectTemplates.some((template) => template.id === projectTemplateInput.value)) {
-      projectTemplateInput.value = projectTemplates[0]?.id ?? "";
-    }
+    projectTemplateInput.value = preferredValue;
     const template = getProjectTemplate(projectTemplateInput.value);
     projectTemplateSummaryNode.textContent = template
       ? `${template.summary} Starts in ${template.gameMode.replaceAll("_", " ")} mode.`
@@ -1105,8 +1695,8 @@ async function bootstrap(): Promise<void> {
     }
     const selectedWorld = project.worlds[projectWorldInput.value] ?? project.worlds[project.currentWorldId];
     projectWorldSummaryNode.textContent = selectedWorld
-      ? `${Object.keys(project.worlds).length} project worlds. Active world: ${project.worlds[project.currentWorldId]?.metadata.name ?? selectedWorld.metadata.name}. Selected world mode: ${selectedWorld.gameMode.replaceAll("_", " ")}.`
-      : "No project worlds available.";
+      ? `${Object.keys(project.worlds).length} world variants. Active variant: ${project.worlds[project.currentWorldId]?.metadata.name ?? selectedWorld.metadata.name}. Selected mode: ${selectedWorld.gameMode.replaceAll("_", " ")}.`
+      : "No world variants available.";
   };
 
   const syncWorldStamps = (): void => {
@@ -1151,10 +1741,9 @@ async function bootstrap(): Promise<void> {
       .join("");
   };
 
-  const syncGameplayPolicyControls = (): void => {
+  const syncGameplayPolicyInputs = (): void => {
     const preset = getActionModulePreset(store.peekWorld().gameMode);
     if (!preset) {
-      gameplayPolicySummaryNode.textContent = "No configurable gameplay policy for this mode.";
       return;
     }
     const policy = resolvePresetGameplayPolicy(preset, store.peekProject());
@@ -1170,6 +1759,15 @@ async function bootstrap(): Promise<void> {
     policyRespawnKeyInput.value = policy.respawn.key ?? policy.controls.respawnKey ?? "";
     policyAggroScaleInput.value = policy.hostile.aggroRadiusScale.toFixed(2);
     policyLeashScaleInput.value = policy.hostile.leashRadiusScale.toFixed(2);
+  };
+
+  const syncGameplayPolicySummary = (): void => {
+    const preset = getActionModulePreset(store.peekWorld().gameMode);
+    if (!preset) {
+      gameplayPolicySummaryNode.textContent = "No configurable gameplay policy for this mode.";
+      return;
+    }
+    const policy = resolvePresetGameplayPolicy(preset, store.peekProject());
     gameplayPolicySummaryNode.textContent =
       `Policy '${preset.policyId}': facing ${policy.facing.mode}, camera ${policy.camera.mode} ${policy.camera.distance.toFixed(1)}m @ ${policy.camera.pitch.toFixed(2)}rad, combat ${policy.combat.targetingMode}/${policy.combat.movementLockOnAttack ? "lock" : "free"}, loot ${policy.loot.transferMode}/${policy.loot.emptyContainerMode}, respawn ${policy.respawn.mode}, hostile aggro ${policy.hostile.aggroRadiusScale.toFixed(2)}x leash ${policy.hostile.leashRadiusScale.toFixed(2)}x.`;
   };
@@ -1207,7 +1805,7 @@ async function bootstrap(): Promise<void> {
       },
     };
     store.setProjectGameplayPolicy(preset.policyId, patch);
-    appendEvent(`Applied gameplay policy override '${preset.policyId}'.`);
+    appendEvent(`Applied gameplay policy '${preset.policyId}': camera ${patch.camera?.distance}/${patch.camera?.pitch}, facing ${patch.facing?.mode}, aggro ${patch.hostile?.aggroRadiusScale}x.`);
   };
 
   const resetGameplayPolicyToPreset = (): void => {
@@ -1217,7 +1815,8 @@ async function bootstrap(): Promise<void> {
       return;
     }
     store.clearProjectGameplayPolicy(preset.policyId);
-    syncGameplayPolicyControls();
+    syncGameplayPolicyInputs();
+    syncGameplayPolicySummary();
     appendEvent(`Reset gameplay policy '${preset.policyId}' to preset defaults.`);
   };
 
@@ -1404,7 +2003,7 @@ async function bootstrap(): Promise<void> {
   };
 
   const handleCanvasAuthoring = (event: PointerEvent): void => {
-    if (authoringMode === "play") {
+    if (interactionMode === "play") {
       canvasRoot.focus();
       return;
     }
@@ -1416,23 +2015,23 @@ async function bootstrap(): Promise<void> {
     if (!groundPick) {
       return;
     }
-    if (authoringMode === "place") {
+    if (editTool === "place") {
       placePrefabAt(authoringPrefabInput.value, groundPick.point.x, groundPick.point.z);
       return;
     }
-    if (authoringMode === "move") {
+    if (editTool === "move") {
       moveDragActive = true;
       scene.setOrbitEnabled(false);
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
       return;
     }
-    if (authoringMode === "resize") {
+    if (editTool === "resize") {
       resizeDragActive = true;
       scene.setOrbitEnabled(false);
       resizeSelectedToPoint(groundPick.point.x, groundPick.point.z);
       return;
     }
-    if (authoringMode === "zone") {
+    if (editTool === "zone") {
       placeZoneAt(groundPick.point.x, groundPick.point.z);
     }
   };
@@ -1442,11 +2041,11 @@ async function bootstrap(): Promise<void> {
     if (!groundPick) {
       return;
     }
-    if (moveDragActive && authoringMode === "move") {
+    if (moveDragActive && editTool === "move") {
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
       return;
     }
-    if (resizeDragActive && authoringMode === "resize") {
+    if (resizeDragActive && editTool === "resize") {
       resizeSelectedToPoint(groundPick.point.x, groundPick.point.z);
     }
   };
@@ -1495,7 +2094,16 @@ async function bootstrap(): Promise<void> {
       : [];
     const playerRuntimeDebug = runtimeModule.getEntityDebug?.(world, "player") ?? [];
     const playerVisualDebug = scene.getEntityVisualDebug("player");
+    const playerPhysicsDebug = physics.getEntityDebug("player");
     const assetReports = scene.getAssetReports();
+    const assetLoadSummary = scene.getAssetLoadSummary();
+    const assetLoadingLine = assetLoadSummary.total > 0
+      ? assetLoadSummary.loading > 0
+        ? `Loading world assets ${assetLoadSummary.ready}/${assetLoadSummary.total} ready${assetLoadSummary.error > 0 ? ` | ${assetLoadSummary.error} failed` : ""}`
+        : assetLoadSummary.error > 0
+          ? `World assets ready with ${assetLoadSummary.error} load failure${assetLoadSummary.error === 1 ? "" : "s"}`
+          : `World assets ready ${assetLoadSummary.ready}/${assetLoadSummary.total}`
+      : null;
     const assetFindings = assetReports.flatMap((report) => {
       const lines = report.warnings.map((warning) => `${report.entityId}: ${warning}`);
       if (report.error) {
@@ -1508,32 +2116,34 @@ async function bootstrap(): Promise<void> {
     const activeGameplayPolicy = actionPreset
       ? resolvePresetGameplayPolicy(actionPreset, store.peekProject())
       : null;
+    const projectDirty = isProjectDirty();
+    const projectSaveTarget = lastSavedTarget ?? "Not saved to a file yet";
+    const projectSaveLabel = projectDirty ? "Unsaved changes" : "Saved";
 
     if (document.activeElement !== projectNameInput) {
       projectNameInput.value = world.metadata.name;
     }
 
+    if (worldSwapState !== "failed") {
+      worldSwapState = assetLoadSummary.loading > 0 ? "loading" : "idle";
+    }
+
     diagnosticsNode.textContent = JSON.stringify(diagnostics, null, 2);
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
-    sessionNode.textContent = runtimeModule.getStatusLines?.().join("\n") ?? "No session state.";
+    sessionNode.textContent = [
+      ...(assetLoadingLine ? [assetLoadingLine] : []),
+      ...(runtimeModule.getStatusLines?.() ?? ["No session state."]),
+    ].join("\n");
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     scene.setSectorOverlay(sectorOverlay);
     overviewNode.innerHTML = [
       renderOverviewRow("Project", store.peekProject().metadata.name),
       renderOverviewRow("World", world.metadata.name),
       renderOverviewRow("Mode", currentModuleDescriptor?.label ?? runtimeModule.id),
-      renderOverviewRow(
-        "Policy",
-        activeGameplayPolicy
-          ? `${activeGameplayPolicy.facing.mode} / ${activeGameplayPolicy.loot.transferMode} / ${activeGameplayPolicy.respawn.mode}`
-          : "n/a",
-      ),
-      renderOverviewRow("Swap", worldSwapState),
+      renderOverviewRow("Entities", `${world.entities.length} entities / ${world.zones.length} zones`),
       renderOverviewRow("Selection", selectedEntityId ?? selectedZone?.id ?? "none"),
-      renderOverviewRow("Authoring", `${authoringMode} / ${authoringPrefabInput.value}`),
-      renderOverviewRow("Counts", `${world.entities.length} entities / ${world.zones.length} zones / ${Object.keys(store.peekProject().worlds).length} worlds`),
     ].join("");
-    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nGameplay policy: ${activeGameplayPolicy ? JSON.stringify(activeGameplayPolicy, null, 2) : "n/a"}\nAuthoring mode: ${authoringMode}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
+    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nGameplay policy: ${activeGameplayPolicy ? JSON.stringify(activeGameplayPolicy, null, 2) : "n/a"}\nInteraction mode: ${interactionMode}\nEdit tool: ${editTool}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedZone,
@@ -1548,7 +2158,19 @@ async function bootstrap(): Promise<void> {
       sceneSearchInput.value,
       sceneFilterInput.value,
     );
+    projectSaveSummaryNode.innerHTML = [
+      renderOverviewRow("State", projectSaveLabel),
+      renderOverviewRow("Target", projectSaveTarget),
+      renderOverviewRow("Saved", lastSavedAt ? new Date(lastSavedAt).toLocaleString() : "Never"),
+      renderOverviewRow("Autosave", "Browser local autosave is on"),
+    ].join("");
     assetStatusNode.textContent = formatAssetReports(assetReports);
+    syncAssetFitPrefabs();
+    syncAssetFitInputs();
+    updateAssetFitOptionsFromPreview();
+    assetFitStatusNode.textContent = assetFitScene.getAssetFitPreviewReport()
+      ? formatSingleAssetReport(assetFitScene.getAssetFitPreviewReport()!)
+      : "Select a model prefab, preview it on the floor, adjust it, then apply the fit to prefab defaults.";
     const playtestEvaluation = playtestSession
       ? evaluatePlaytest({
           startedAt: playtestSession.startedAt,
@@ -1565,13 +2187,18 @@ async function bootstrap(): Promise<void> {
       playtestEvaluation,
     );
     playtestHud.innerHTML = renderHud(
-      runtimeModule.getStatusLines?.() ?? [],
+      [
+        ...(assetLoadingLine ? [assetLoadingLine] : []),
+        ...(runtimeModule.getStatusLines?.() ?? []),
+      ],
       runtimeFindings,
       evaluation.findings.map((finding) => `[${finding.severity}] ${finding.message}`),
       [
         ...playerRuntimeDebug,
+        ...playerPhysicsDebug,
         ...playerVisualDebug,
       ],
+      hudVisibility,
     );
     selectionNode.textContent = selectedZone
       ? JSON.stringify(selectedZone, null, 2)
@@ -1589,22 +2216,20 @@ async function bootstrap(): Promise<void> {
       "No command issues.\nUse Generate Flat Outpost for a procedural world seed, or load the authored survival slice.";
     iterationSuggestionsNode.innerHTML = renderIterationSuggestions(latestIterationSuggestions);
     const renderStats = scene.getStats();
-      runtimeStatsNode.textContent = [
-        `Mode: ${world.gameMode}`,
-        `Swap: ${worldSwapState}`,
-        `Draw calls: ${renderStats.drawCalls}`,
-        `Triangles: ${renderStats.triangleCount}`,
-        `Objects: ${renderStats.objectCount}`,
-        `Sectors: ${diagnostics.occupiedSectorCount} occupied / ${diagnostics.simulatedSectorCount} tracked`,
-        `Pooled actors: ${diagnostics.pooledActorCount}`,
-        `Physics colliders: ${physics.getColliderCount()}`,
-        `Physics syncs: ${physicsStats.syncCount}`,
-        `Retired worlds: ${physicsStats.retiredWorlds}`,
-      `Eval warnings: ${evaluation.counts.warn}`,
-      `Eval errors: ${evaluation.counts.error}`,
-      `Module: ${runtimeModule.id}`,
-      `Project worlds: ${Object.keys(store.peekProject().worlds).length}`,
-    ].join(" | ");
+    const assetStatus = assetLoadSummary.total > 0
+      ? `${assetLoadSummary.ready}/${assetLoadSummary.total} assets`
+      : "No model assets";
+    const assetSuffix = assetLoadSummary.loading > 0
+      ? `, ${assetLoadSummary.loading} loading`
+      : assetLoadSummary.error > 0
+        ? `, ${assetLoadSummary.error} failed`
+        : "";
+    runtimeStatsNode.textContent = [
+      `Mode ${world.gameMode}`,
+      `World ${worldSwapState}`,
+      `${assetStatus}${assetSuffix}`,
+      `${evaluation.counts.error} errors / ${evaluation.counts.warn} warnings`,
+    ].join(" · ");
     playtestStatusNode.textContent = formatPlaytestStatus(
       playtestSession,
       runtimeEvents,
@@ -1612,7 +2237,7 @@ async function bootstrap(): Promise<void> {
     );
     syncGameModeTemplate();
     syncFeatureToggles();
-    syncGameplayPolicyControls();
+    syncGameplayPolicySummary();
     syncProjectWorlds();
     syncAuthoringPrefabs();
     syncSelectedZoneInputs();
@@ -1628,14 +2253,15 @@ async function bootstrap(): Promise<void> {
       worldSwapState = "rebuilding";
       physics.syncWorld(world);
       scene.setWorld(world);
+      worldSwapState = "loading";
       runtimeModule.onWorldRebuilt?.(world, {
         store,
         scene,
         physics,
         input,
       });
-      worldSwapState = "idle";
       appendEvent(`World rebuilt: ${world.metadata.id}`);
+      syncGameplayPolicyInputs();
       refreshSidebar();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -1671,6 +2297,19 @@ async function bootstrap(): Promise<void> {
     appendEvent("Requested generated town grid world.");
   };
 
+  const buildUrbanWorld = (): void => {
+    store.setWorld(
+      stampWorldMode(makeUrbanCityWorld({
+        seed: parseNumber(seedInput.value, defaultFlatWorldOptions.seed, 1),
+        worldHalfExtent: Math.max(parseNumber(sizeInput.value, defaultFlatWorldOptions.worldHalfExtent, 24), 96),
+        buildingCount: Math.max(parseNumber(buildingInput.value, defaultFlatWorldOptions.buildingCount, 1), 12),
+        zombieCount: Math.max(parseNumber(zombieInput.value, defaultFlatWorldOptions.zombieCount, 0), 20),
+        crateCount: Math.max(parseNumber(crateInput.value, defaultFlatWorldOptions.crateCount, 0), 8),
+      })),
+    );
+    appendEvent("Requested generated urban city world.");
+  };
+
   const startProjectFromTemplate = (): void => {
     const template = getProjectTemplate(projectTemplateInput.value);
     if (!template) {
@@ -1678,7 +2317,11 @@ async function bootstrap(): Promise<void> {
       return;
     }
     requestedGameMode = template.gameMode;
-    const world = stampWorldMode(template.buildWorld());
+    const currentWorld = store.peekWorld();
+    const world = mergePrefabOverrides(
+      stampWorldMode(template.buildWorld()),
+      currentWorld,
+    );
     const projectName = projectNameInput.value.trim();
     const nextProject = projectFromWorld(world, {
       id: `groundtruth.project.${template.id}`,
@@ -1690,8 +2333,52 @@ async function bootstrap(): Promise<void> {
     if (projectName.length > 0) {
       nextProject.worlds[nextProject.currentWorldId].metadata.name = projectName;
     }
+    projectSaveHandle = null;
+    lastSavedProjectSignature = null;
+    lastSavedAt = null;
+    lastSavedTarget = null;
     store.setProject(nextProject);
+    projectTemplateInput.value = template.id;
     appendEvent(`Started project '${world.metadata.name}' from template '${template.label}'.`);
+  };
+
+  const saveProjectToWorkingFile = async (): Promise<void> => {
+    const project = store.getProject();
+    const suggestedName = `${project.metadata.id || "groundtruth-project"}.project.json`;
+    const pickerWindow = window as Window & typeof globalThis & {
+      showSaveFilePicker?: (options?: {
+        suggestedName?: string;
+        types?: Array<{
+          description?: string;
+          accept: Record<string, string[]>;
+        }>;
+      }) => Promise<SaveFileHandleLike>;
+    };
+
+    if (pickerWindow.showSaveFilePicker) {
+      const handle = projectSaveHandle ?? await pickerWindow.showSaveFilePicker({
+        suggestedName,
+        types: [
+          {
+            description: "Groundtruth Project",
+            accept: {
+              "application/json": [".json"],
+            },
+          },
+        ],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(JSON.stringify(project, null, 2));
+      await writable.close();
+      projectSaveHandle = handle;
+      markProjectSaved(handle.name ?? suggestedName);
+      appendEvent(`Saved working project '${project.metadata.name}' to '${handle.name ?? suggestedName}'.`);
+      return;
+    }
+
+    downloadJson(suggestedName, project);
+    markProjectSaved(suggestedName);
+    appendEvent(`Saved working project '${project.metadata.name}' via download fallback.`);
   };
 
   const applySelectedWorldStamp = (): void => {
@@ -1868,6 +2555,10 @@ async function bootstrap(): Promise<void> {
           if (command.projectName?.trim().length) {
             nextProject.worlds[nextProject.currentWorldId].metadata.name = command.projectName.trim();
           }
+          projectSaveHandle = null;
+          lastSavedProjectSignature = null;
+          lastSavedAt = null;
+          lastSavedTarget = null;
           store.setProject(nextProject);
           appendEvent(`Command started project from template '${template.label}'.`);
           break;
@@ -1881,6 +2572,10 @@ async function bootstrap(): Promise<void> {
           }
           const project = recipe.buildProject(command.projectName);
           requestedGameMode = project.metadata.defaultGameMode;
+          projectSaveHandle = null;
+          lastSavedProjectSignature = null;
+          lastSavedAt = null;
+          lastSavedTarget = null;
           store.setProject(project);
           appendEvent(`Command started project from recipe '${recipe.label}'.`);
           break;
@@ -1921,6 +2616,7 @@ async function bootstrap(): Promise<void> {
 
   store.subscribe((event) => {
     if (event === "world") {
+      saveEditorAutosaveProject(store.getProject());
       ensureValidSelection();
       const selectedEntityId = store.getSelectedEntityId();
       if (selectedEntityId && !store.peekWorld().entities.some((entity) => entity.id === selectedEntityId)) {
@@ -1932,23 +2628,36 @@ async function bootstrap(): Promise<void> {
       return;
     }
     if (event === "project") {
+      saveEditorAutosaveProject(store.getProject());
       appendEvent(`Store event: project -> ${store.peekProject().metadata.id}`);
       refreshSidebar();
       return;
     }
     appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? selectedZoneId ?? "none"}`);
-    syncModelTuningInputs();
     syncSelectedTransformInputs();
     syncSelectedZoneInputs();
     refreshSidebar();
   });
   pendingWorldRebuild = true;
 
+  const syncViewportSizes = (): void => {
+    requestAnimationFrame(() => {
+      scene.handleViewportResize();
+      assetFitScene.handleViewportResize();
+    });
+  };
+
   const syncSidebarState = (): void => {
     shell.classList.toggle("sidebar-collapsed", sidebarCollapsed);
-    toggleSidebarButton.textContent = sidebarCollapsed ? "Show Tools" : "Hide Tools";
+    toggleSidebarButton.textContent = sidebarCollapsed ? "Show Workspace" : "Hide Workspace";
     toggleSidebarButton.setAttribute("aria-expanded", String(!sidebarCollapsed));
-    requestAnimationFrame(() => scene.handleViewportResize());
+    syncViewportSizes();
+  };
+
+  const syncHudState = (): void => {
+    playtestHud.classList.toggle("hidden", !hudVisible);
+    toggleHudButton.textContent = hudVisible ? "Hide HUD" : "Show HUD";
+    toggleHudButton.setAttribute("aria-pressed", String(hudVisible));
   };
 
   const syncSidebarPane = (): void => {
@@ -1957,9 +2666,11 @@ async function bootstrap(): Promise<void> {
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
     }
+    workspaceOverviewCard.toggleAttribute("hidden", activeSidebarPane !== "project" && activeSidebarPane !== "debug");
     for (const section of toolSections) {
       section.toggleAttribute("hidden", section.dataset.pane !== activeSidebarPane);
     }
+    syncViewportSizes();
   };
 
   const syncDocs = (): void => {
@@ -2004,14 +2715,27 @@ async function bootstrap(): Promise<void> {
     syncSidebarState();
   });
 
+  toggleHudButton.addEventListener("click", () => {
+    hudVisible = !hudVisible;
+    syncHudState();
+  });
+
   for (const button of paneButtons) {
     button.addEventListener("click", () => {
-      const nextPane = button.dataset.paneTarget as "build" | "inspect" | "runtime" | undefined;
+      const nextPane = button.dataset.paneTarget as "project" | "world" | "play" | "assets" | "debug" | undefined;
       if (!nextPane) {
         return;
       }
       activeSidebarPane = nextPane;
+      sidebarCollapsed = nextPane === "play";
+      syncSidebarState();
       syncSidebarPane();
+    });
+  }
+
+  for (const section of toolSections) {
+    section.addEventListener("toggle", () => {
+      syncViewportSizes();
     });
   }
 
@@ -2030,7 +2754,14 @@ async function bootstrap(): Promise<void> {
   });
 
   window.addEventListener("keydown", (event) => {
-    if (shouldCaptureGameplayKey(event, authoringMode, docsModal, canvasRoot)) {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && bootConfig.mode !== "player") {
+      event.preventDefault();
+      void saveProjectToWorkingFile().then(refreshSidebar).catch((error) => {
+        issuesNode.textContent = error instanceof Error ? error.message : String(error);
+      });
+      return;
+    }
+    if (shouldCaptureGameplayKey(event, interactionMode, docsModal, canvasRoot)) {
       event.preventDefault();
       if (document.activeElement !== canvasRoot) {
         canvasRoot.focus();
@@ -2039,6 +2770,11 @@ async function bootstrap(): Promise<void> {
     if (event.key === "Escape" && !docsModal.classList.contains("hidden")) {
       setDocsOpen(false);
     }
+  });
+
+  window.addEventListener("beforeunload", (_event) => {
+    // Intentionally not preventing unload — the popup was disruptive during development.
+    // Project state is saved explicitly via Save Project.
   });
 
   docsNavNode.addEventListener("click", (event) => {
@@ -2082,33 +2818,43 @@ async function bootstrap(): Promise<void> {
   worldStampInput.addEventListener("change", syncWorldStamps);
 
   root.querySelector<HTMLButtonElement>("#mode-play")?.addEventListener("click", () => {
-    authoringMode = "play";
+    interactionMode = "play";
     syncAuthoringMode();
-    appendEvent("Authoring mode set to play.");
+    appendEvent("Interaction mode set to play.");
+  });
+
+  root.querySelector<HTMLButtonElement>("#mode-edit")?.addEventListener("click", () => {
+    interactionMode = "edit";
+    syncAuthoringMode();
+    appendEvent(`Interaction mode set to edit (${editTool}).`);
   });
 
   root.querySelector<HTMLButtonElement>("#mode-place")?.addEventListener("click", () => {
-    authoringMode = "place";
+    interactionMode = "edit";
+    editTool = "place";
     syncAuthoringMode();
-    appendEvent(`Authoring mode set to place '${authoringPrefabInput.value}'.`);
+    appendEvent(`Edit tool set to place '${authoringPrefabInput.value}'.`);
   });
 
   root.querySelector<HTMLButtonElement>("#mode-move")?.addEventListener("click", () => {
-    authoringMode = "move";
+    interactionMode = "edit";
+    editTool = "move";
     syncAuthoringMode();
-    appendEvent("Authoring mode set to move selected entity.");
+    appendEvent("Edit tool set to move selected entity.");
   });
 
   root.querySelector<HTMLButtonElement>("#mode-resize")?.addEventListener("click", () => {
-    authoringMode = "resize";
+    interactionMode = "edit";
+    editTool = "resize";
     syncAuthoringMode();
-    appendEvent("Authoring mode set to resize selected entity or zone.");
+    appendEvent("Edit tool set to resize selected entity or zone.");
   });
 
   root.querySelector<HTMLButtonElement>("#mode-zone")?.addEventListener("click", () => {
-    authoringMode = "zone";
+    interactionMode = "edit";
+    editTool = "zone";
     syncAuthoringMode();
-    appendEvent(`Authoring mode set to zone '${authoringZoneKindInput.value}'.`);
+    appendEvent(`Edit tool set to zone '${authoringZoneKindInput.value}'.`);
   });
 
   root.querySelector<HTMLButtonElement>("#apply-selected-transform")?.addEventListener("click", () => {
@@ -2175,6 +2921,7 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#apply-gameplay-policy")?.addEventListener("click", () => {
     applyGameplayPolicyFromInputs();
+    refreshSidebar();
   });
 
   root.querySelector<HTMLButtonElement>("#reset-gameplay-policy")?.addEventListener("click", () => {
@@ -2202,7 +2949,7 @@ async function bootstrap(): Promise<void> {
     }
     if (action === "load") {
       commandScript.value = JSON.stringify(suggestion.commands, null, 2);
-      activeSidebarPane = "build";
+      activeSidebarPane = "project";
       syncSidebarPane();
       appendEvent(`Loaded iteration suggestion '${suggestion.title}' into command script.`);
       return;
@@ -2225,6 +2972,10 @@ async function bootstrap(): Promise<void> {
 
   root.querySelector<HTMLButtonElement>("#load-town")?.addEventListener("click", () => {
     buildTownWorld();
+  });
+
+  root.querySelector<HTMLButtonElement>("#load-urban")?.addEventListener("click", () => {
+    buildUrbanWorld();
   });
 
   root.querySelector<HTMLButtonElement>("#start-project")?.addEventListener("click", () => {
@@ -2251,6 +3002,15 @@ async function bootstrap(): Promise<void> {
     }
     requestedGameMode = store.peekWorld().gameMode;
     appendEvent(`Activated project world '${worldId}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#save-project")?.addEventListener("click", async () => {
+    try {
+      await saveProjectToWorkingFile();
+      refreshSidebar();
+    } catch (error) {
+      issuesNode.textContent = error instanceof Error ? error.message : String(error);
+    }
   });
 
   root.querySelector<HTMLButtonElement>("#export-project")?.addEventListener("click", () => {
@@ -2280,9 +3040,6 @@ async function bootstrap(): Promise<void> {
     projectFileInput.click();
   });
 
-  root.querySelector<HTMLButtonElement>("#import-playable")?.addEventListener("click", () => {
-    playableFileInput.click();
-  });
 
   root.querySelector<HTMLButtonElement>("#apply-world-stamp")?.addEventListener("click", () => {
     applySelectedWorldStamp();
@@ -2296,6 +3053,10 @@ async function bootstrap(): Promise<void> {
     }
     const project = recipe.buildProject(projectNameInput.value.trim() || undefined);
     requestedGameMode = project.metadata.defaultGameMode;
+    projectSaveHandle = null;
+    lastSavedProjectSignature = null;
+    lastSavedAt = null;
+    lastSavedTarget = null;
     store.setProject(project);
     appendEvent(`Started project from recipe '${recipe.label}'.`);
   });
@@ -2333,13 +3094,61 @@ async function bootstrap(): Promise<void> {
     enqueueStressTest();
   });
 
-  root.querySelector<HTMLButtonElement>("#apply-model-tuning")?.addEventListener("click", () => {
-    applySelectedModelTuning();
+  assetFitPrefabInput.addEventListener("change", () => {
+    syncAssetFitInputs(true);
+    refreshAssetFitPreview();
+    appendEvent(`Asset fit selected prefab '${assetFitPrefabInput.value}'.`);
   });
 
-  root.querySelector<HTMLButtonElement>("#refresh-model-tuning")?.addEventListener("click", () => {
-    syncModelTuningInputs(true);
-    appendEvent("Loaded model tuning from selected entity.");
+  assetFitAnimationInput.addEventListener("change", refreshAssetFitPreview);
+  assetFitAnimSpeedInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitScaleInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitYawInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitOffsetYInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitCollisionShapeInput.addEventListener("change", refreshAssetFitPreview);
+  assetFitSolidInput.addEventListener("change", refreshAssetFitPreview);
+  assetFitColSxInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitColSyInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitColSzInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitColOxInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitColOyInput.addEventListener("input", refreshAssetFitPreview);
+  assetFitColOzInput.addEventListener("input", refreshAssetFitPreview);
+
+  root.querySelector<HTMLButtonElement>("#asset-fit-preview")?.addEventListener("click", () => {
+    refreshAssetFitPreview();
+    appendEvent(`Previewing asset fit for '${assetFitPrefabInput.value}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#asset-fit-apply")?.addEventListener("click", () => {
+    applyAssetFitToPrefab();
+  });
+
+  root.querySelector<HTMLButtonElement>("#asset-fit-reset")?.addEventListener("click", () => {
+    syncAssetFitInputs(true);
+    refreshAssetFitPreview();
+    appendEvent(`Reloaded prefab defaults for '${assetFitPrefabInput.value}'.`);
+  });
+
+  root.querySelector<HTMLButtonElement>("#asset-fit-prev")?.addEventListener("click", () => {
+    const prefabIds = listModelPrefabIds();
+    if (prefabIds.length === 0) {
+      return;
+    }
+    const currentIndex = Math.max(prefabIds.indexOf(assetFitPrefabInput.value), 0);
+    assetFitPrefabInput.value = prefabIds[(currentIndex - 1 + prefabIds.length) % prefabIds.length];
+    syncAssetFitInputs(true);
+    refreshAssetFitPreview();
+  });
+
+  root.querySelector<HTMLButtonElement>("#asset-fit-next")?.addEventListener("click", () => {
+    const prefabIds = listModelPrefabIds();
+    if (prefabIds.length === 0) {
+      return;
+    }
+    const currentIndex = Math.max(prefabIds.indexOf(assetFitPrefabInput.value), 0);
+    assetFitPrefabInput.value = prefabIds[(currentIndex + 1) % prefabIds.length];
+    syncAssetFitInputs(true);
+    refreshAssetFitPreview();
   });
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
@@ -2405,6 +3214,10 @@ async function bootstrap(): Promise<void> {
       };
       const importedProject = parsed.project ? resolveImportedProject(parsed.project) : null;
       if (importedProject) {
+        projectSaveHandle = null;
+        lastSavedProjectSignature = JSON.stringify(importedProject);
+        lastSavedAt = new Date().toISOString();
+        lastSavedTarget = file.name;
         store.setProject(importedProject);
       } else if (parsed.world) {
         store.setWorld(parsed.world);
@@ -2432,40 +3245,26 @@ async function bootstrap(): Promise<void> {
       const parsed = JSON.parse(await file.text()) as unknown;
       const project = resolveImportedProject(parsed);
       if (!project) {
-        throw new Error("Project JSON does not contain a valid project document.");
+        throw new Error("File does not contain a valid Groundtruth project or playable export.");
       }
+      projectSaveHandle = null;
+      lastSavedProjectSignature = JSON.stringify(project);
+      lastSavedAt = new Date().toISOString();
+      lastSavedTarget = file.name;
       store.setProject(project);
       requestedGameMode = project.metadata.defaultGameMode;
       if (typeof parsed === "object" && parsed && "screenshot" in parsed && typeof (parsed as { screenshot?: unknown }).screenshot === "string") {
         screenshotPreview.src = (parsed as { screenshot: string }).screenshot;
         screenshotPreview.classList.add("visible");
       }
-      appendEvent(`Imported project '${project.metadata.name}'.`);
+      const isPlayable = isPlayableBuildDocument(parsed);
+      appendEvent(isPlayable
+        ? `Imported playable build as editable project '${project.metadata.name}'.`
+        : `Imported project '${project.metadata.name}'.`);
     } catch (error) {
       issuesNode.textContent = error instanceof Error ? error.message : String(error);
     } finally {
       projectFileInput.value = "";
-    }
-  });
-
-  playableFileInput.addEventListener("change", async () => {
-    const file = playableFileInput.files?.[0];
-    if (!file) {
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(await file.text()) as unknown;
-      if (!isPlayableBuildDocument(parsed)) {
-        throw new Error("Playable build JSON does not contain a valid Groundtruth playable build.");
-      }
-      store.setProject(parsed.project);
-      requestedGameMode = parsed.project.metadata.defaultGameMode;
-      appendEvent(`Imported playable build '${parsed.manifest.title}' as an editable project.`);
-    } catch (error) {
-      issuesNode.textContent = error instanceof Error ? error.message : String(error);
-    } finally {
-      playableFileInput.value = "";
     }
   });
 
@@ -2487,6 +3286,11 @@ async function bootstrap(): Promise<void> {
       showAggroRanges: toggleAggroInput.checked,
       showSectors: toggleSectorsInput.checked,
     });
+    hudVisibility.status = toggleHudStatusInput.checked;
+    hudVisibility.findings = toggleHudFindingsInput.checked;
+    hudVisibility.evaluation = toggleHudEvaluationInput.checked;
+    hudVisibility.debug = toggleHudDebugInput.checked;
+    refreshSidebar();
   };
 
   toggleZonesInput.addEventListener("change", syncDebugOptions);
@@ -2494,9 +3298,14 @@ async function bootstrap(): Promise<void> {
   toggleInteractionInput.addEventListener("change", syncDebugOptions);
   toggleAggroInput.addEventListener("change", syncDebugOptions);
   toggleSectorsInput.addEventListener("change", syncDebugOptions);
+  toggleHudStatusInput.addEventListener("change", syncDebugOptions);
+  toggleHudFindingsInput.addEventListener("change", syncDebugOptions);
+  toggleHudEvaluationInput.addEventListener("change", syncDebugOptions);
+  toggleHudDebugInput.addEventListener("change", syncDebugOptions);
   sceneSearchInput.addEventListener("input", refreshSidebar);
   sceneFilterInput.addEventListener("change", refreshSidebar);
   syncSidebarState();
+  syncHudState();
   syncSidebarPane();
   syncGameModeTemplate();
   syncProjectTemplates();
@@ -2504,9 +3313,9 @@ async function bootstrap(): Promise<void> {
   syncWorldRecipes();
   syncWorldStamps();
   syncAuthoringPrefabs();
-  syncGameplayPolicyControls();
+  syncGameplayPolicyInputs();
+  syncGameplayPolicySummary();
   syncAuthoringMode();
-  syncModelTuningInputs(true);
   syncSelectedTransformInputs(true);
   syncSelectedZoneInputs(true);
 
@@ -2527,6 +3336,14 @@ async function bootstrap(): Promise<void> {
     }
     if (worldSwapState === "failed") {
       scene.renderFrame(dtSeconds);
+      assetFitScene.renderFrame(dtSeconds);
+      refreshSidebar();
+      requestAnimationFrame(animate);
+      return;
+    }
+    if (interactionMode === "edit") {
+      scene.renderFrame(dtSeconds);
+      assetFitScene.renderFrame(dtSeconds);
       refreshSidebar();
       requestAnimationFrame(animate);
       return;
@@ -2536,16 +3353,17 @@ async function bootstrap(): Promise<void> {
         runtimeModule.update(dtSeconds, {
           store,
           scene,
-        physics,
-        input,
-      });
-      physics.step();
+          physics,
+          input,
+        });
+        physics.step();
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       appendEvent(`Runtime step failed: ${message}`);
       issuesNode.textContent = `Runtime step failed: ${message}`;
     }
     scene.renderFrame(dtSeconds);
+    assetFitScene.renderFrame(dtSeconds);
     refreshSidebar();
     requestAnimationFrame(animate);
   };
@@ -2557,6 +3375,36 @@ void bootstrap();
 interface GroundtruthBootConfig {
   mode?: "editor" | "player";
   manifest?: string;
+}
+
+const EDITOR_AUTOSAVE_KEY = "groundtruth.editor.autosave.project";
+
+type SaveFileHandleLike = {
+  name?: string;
+  createWritable: () => Promise<{
+    write: (contents: string) => Promise<void>;
+    close: () => Promise<void>;
+  }>;
+};
+
+function loadEditorAutosaveProject(): ProjectDocument | null {
+  try {
+    const source = window.localStorage.getItem(EDITOR_AUTOSAVE_KEY);
+    if (!source) {
+      return null;
+    }
+    return JSON.parse(source) as ProjectDocument;
+  } catch {
+    return null;
+  }
+}
+
+function saveEditorAutosaveProject(project: ProjectDocument): void {
+  try {
+    window.localStorage.setItem(EDITOR_AUTOSAVE_KEY, JSON.stringify(project));
+  } catch {
+    // Ignore autosave failures in constrained browser environments.
+  }
 }
 
 function readBootConfig(): GroundtruthBootConfig {
@@ -2968,6 +3816,12 @@ function renderHud(
   findings: string[],
   evaluationLines: string[],
   debugLines: string[],
+  visibility: {
+    status: boolean;
+    findings: boolean;
+    evaluation: boolean;
+    debug: boolean;
+  },
 ): string {
   const statusHtml = statusLines
     .map((line) => `<div>${escapeHtml(line)}</div>`)
@@ -2983,24 +3837,40 @@ function renderHud(
     .slice(0, 6)
     .map((line) => `<div>${escapeHtml(line)}</div>`)
     .join("");
-  return `
-    <div class="hud-card">
-      <div class="hud-title">Playtest HUD</div>
-      ${statusHtml}
-    </div>
-    <div class="hud-card hud-findings">
-      <div class="hud-title">Runtime Findings</div>
-      ${findingsHtml}
-    </div>
-    <div class="hud-card hud-evaluation">
-      <div class="hud-title">World Evaluation</div>
-      ${evaluationHtml}
-    </div>
-    <div class="hud-card hud-debug">
-      <div class="hud-title">Player Debug</div>
-      ${debugHtml}
-    </div>
-  `;
+  const cards: string[] = [];
+  if (visibility.status) {
+    cards.push(`
+      <div class="hud-card hud-anchor-top-left">
+        <div class="hud-title">Playtest HUD</div>
+        ${statusHtml}
+      </div>
+    `);
+  }
+  if (visibility.findings) {
+    cards.push(`
+      <div class="hud-card hud-findings hud-anchor-bottom-left">
+        <div class="hud-title">Runtime Findings</div>
+        ${findingsHtml}
+      </div>
+    `);
+  }
+  if (visibility.evaluation) {
+    cards.push(`
+      <div class="hud-card hud-evaluation hud-anchor-top-right">
+        <div class="hud-title">World Evaluation</div>
+        ${evaluationHtml}
+      </div>
+    `);
+  }
+  if (visibility.debug) {
+    cards.push(`
+      <div class="hud-card hud-debug hud-anchor-bottom-right">
+        <div class="hud-title">Player Debug</div>
+        ${debugHtml}
+      </div>
+    `);
+  }
+  return cards.join("");
 }
 
 function formatEvaluation(
@@ -3138,11 +4008,11 @@ function formatDelta(value: number): string {
 
 function shouldCaptureGameplayKey(
   event: KeyboardEvent,
-  authoringMode: string,
+  interactionMode: string,
   docsModal: HTMLElement,
   canvasRoot: HTMLElement,
 ): boolean {
-  if (authoringMode !== "play") {
+  if (interactionMode !== "play") {
     return false;
   }
   if (!docsModal.classList.contains("hidden")) {
@@ -3329,6 +4199,9 @@ function renderPrefabPalette(
   world: ReturnType<WorldStore["getWorld"]>,
   selectedPrefabId: string,
 ): string {
+  if (Object.keys(world.prefabs).length === 0) {
+    return '<div class="inventory-empty">No prefabs available for this world.</div>';
+  }
   const groups = new Map<string, string[]>();
   for (const prefabId of Object.keys(world.prefabs).sort()) {
     const group = categorizePrefab(world.prefabs[prefabId]?.category, prefabId);
@@ -3340,7 +4213,7 @@ function renderPrefabPalette(
   return Array.from(groups.entries())
     .map(([group, prefabIds]) => `
       <details class="palette-group" open>
-        <summary class="palette-group-title">${escapeHtml(group)}</summary>
+        <summary class="palette-group-title">${escapeHtml(group)} (${prefabIds.length})</summary>
         <div class="palette-chip-grid">
           ${prefabIds
             .map((prefabId) => `
@@ -3396,17 +4269,22 @@ function formatAssetReports(
   }
 
   return reports
-    .map((report) => {
-      const clipSummary = report.clips
-        .map((clip) => `${clip.state}:${clip.status}${clip.durationSeconds ? ` (${clip.durationSeconds.toFixed(2)}s)` : ""}`)
-        .join(", ");
-      const warningSummary = report.warnings.length > 0
-        ? ` | warnings: ${report.warnings.join(" | ")}`
-        : "";
-      const errorSummary = report.error ? ` | error: ${report.error}` : "";
-      return `${report.entityId} -> ${report.status} ${report.format.toUpperCase()} | ${clipSummary}${warningSummary}${errorSummary}`;
-    })
+    .map((report) => formatSingleAssetReport(report))
     .join("\n");
+}
+
+function formatSingleAssetReport(report: ReturnType<SceneRuntime["getAssetReports"]>[number]): string {
+  const clipSummary = report.clips
+    .map((clip) => `${clip.state}:${clip.status}${clip.durationSeconds ? ` (${clip.durationSeconds.toFixed(2)}s)` : ""}`)
+    .join(", ");
+  const availableSummary = report.availableClipNames.length > 0
+    ? ` | available: ${report.availableClipNames.join(", ")}`
+    : "";
+  const warningSummary = report.warnings.length > 0
+    ? ` | warnings: ${report.warnings.join(" | ")}`
+    : "";
+  const errorSummary = report.error ? ` | error: ${report.error}` : "";
+  return `${report.entityId} -> ${report.status} ${report.format.toUpperCase()} | ${clipSummary}${availableSummary}${warningSummary}${errorSummary}`;
 }
 
 function escapeHtml(source: string): string {

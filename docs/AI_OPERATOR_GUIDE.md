@@ -3,15 +3,24 @@
 This guide is for an AI agent that needs to build or modify a game inside Groundtruth.
 
 Before making architecture changes, also read [ENGINE_RULEBOOK.md](./ENGINE_RULEBOOK.md).
+If you are taking over active branch work and need the fullest current-state context, also read [LLM_HANDOFF.md](./LLM_HANDOFF.md).
 
 Groundtruth should be treated as a semantic runtime/editor. The normal path is:
 
 1. Choose the closest implemented game mode.
-2. Start from a template or generator.
+2. Start from a template in `Project` or a generator in `World`.
 3. Apply stamps for larger structure.
 4. Use semantic commands or authoring edits for fine-grained changes.
-5. Validate with Evaluation, Issues, Assets, and Events.
+5. Validate with `World`, `Play`, `Assets`, and `Debug`.
 6. Export a snapshot when the world reaches a useful state.
+
+Current top-level workspaces:
+
+- `Project`: templates, variants, save/open/export, features, gameplay policy, command script
+- `World`: generators, authoring, scene/inspector/evaluation
+- `Play`: overlay toggles, issues, playtest
+- `Assets`: asset validation and asset fitting
+- `Debug`: deep runtime/session/sector/event state
 
 ## What Groundtruth Is
 
@@ -61,6 +70,7 @@ Other listed modes are labels or future intent, not full implementations yet.
 3. Otherwise use `Build > World`:
    - `Generate Flat Outpost` for general combat sandboxes
    - `Generate Town Grid` for street/block structure
+   - `Generate Urban City` for denser modular city-block tests using the URBAN kit
    - `Generate Scale Test` for sector/scale behavior
    - `New Empty World` for a blank authored start
 4. Use `Build > Stamps` to add larger chunks before placing single entities.
@@ -76,7 +86,7 @@ Other listed modes are labels or future intent, not full implementations yet.
    - `Inspect > Assets`
    - `Runtime > Events`
 8. Export a snapshot when the result or failure case is worth preserving.
-9. Export the whole project when the project structure itself is worth preserving, not just the current world state.
+9. Use `Save Project` for the normal editable working file and `Export Project` when you want the richer project envelope.
 10. Use `Build > Features` when the project needs capability-level changes such as disabling hostile AI, combat, interaction, combat feedback, or sector population.
 11. Use `Build > Gameplay Policy` when the module is correct but the rules need to change, such as facing mode, respawn behavior, loot behavior, or camera feel.
 12. That same policy layer now also covers attack targeting, attack movement locking, and hostile aggro/leash tuning for the action-family modules.
@@ -111,6 +121,7 @@ Current templates:
 - `Survival Outpost`
 - `Third-Person Arena`
 - `First-Person Patrol`
+- `Urban City Survival`
 - `Top-Down Encounter`
 - `Platformer Course`
 
@@ -118,7 +129,7 @@ Templates automatically switch the active game mode to the correct one.
 
 Project export/import now exists separately from snapshot export/import. Prefer project export when you want to preserve project metadata and future project structure.
 
-Projects can now store multiple project worlds. Use that when you want alternate layouts or variants inside the same project instead of exporting separate single-world snapshots for everything.
+Projects can now store multiple world variants. Use that when you want alternate layouts or variants inside the same project instead of exporting separate single-world snapshots for everything.
 
 Playable export is now a separate concept from editable project export:
 
@@ -138,6 +149,8 @@ npm run export:playable -- --project path/to/project-or-playable.json --out path
   - General-purpose playable world
 - `Generate Town Grid`
   - Road-and-block world with clearer first-person/top-down readability
+- `Generate Urban City`
+  - Denser city-block world built from URBAN roads, flats, bus stops, and traffic landmarks
 - `Generate Scale Test`
   - Larger stress scenario for sector behavior
 
@@ -188,7 +201,7 @@ Prefer it for:
 - setting project metadata
 - enabling or disabling project features
 - starting a project from a template
-- saving or reopening project worlds
+- saving or reopening world variants
 - changing game mode
 - renaming worlds
 - generating a base world

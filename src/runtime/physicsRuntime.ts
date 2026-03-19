@@ -1,6 +1,6 @@
 import type * as RAPIERModule from "@dimforge/rapier3d-compat";
 
-import { Vec3, WorldDocument, resolveEntity } from "../core/schema";
+import { PhysicsPrimitiveShape, Rotation3, Vec3, WorldDocument, resolveEntity } from "../core/schema";
 
 type Rapier = typeof RAPIERModule;
 
@@ -23,6 +23,8 @@ export interface PhysicsRuntimeStats {
 }
 
 export class PhysicsRuntime {
+  private static readonly SETTLE_DOWN_DELTA = -0.12;
+
   private readonly bodyMap = new Map<string, RAPIERModule.RigidBody>();
 
   private readonly colliderMap = new Map<string, RAPIERModule.Collider>();
@@ -81,25 +83,57 @@ export class PhysicsRuntime {
         entity.transform.position.y,
         entity.transform.position.z,
       );
+      const rotation = entity.transform.rotation;
+      if (rotation) {
+        const quaternion = eulerToQuaternion(rotation);
+        bodyDesc.setRotation(quaternion);
+      }
 
       if (entity.components.character || physics.body === "kinematic") {
         bodyDesc.enabledRotations(false, false, false);
       }
 
       const body = nextWorld.createRigidBody(bodyDesc);
-      const collider = nextWorld.createCollider(
-        this.makeColliderDesc(entity, physics),
-        body,
-      );
+      const scale = entity.transform.scale ?? { x: 1, y: 1, z: 1 };
+
+      if (physics.shape.type === "compound") {
+        for (const child of physics.shape.children) {
+          const childDesc = this.makePrimitiveColliderDesc(child.shape, scale);
+          childDesc.setTranslation(
+            child.offset.x * scale.x,
+            child.offset.y * scale.y,
+            child.offset.z * scale.z,
+          );
+          if (child.rotation) {
+            const q = eulerToQuaternion(child.rotation);
+            childDesc.setRotation(q);
+          }
+          if (physics.sensor) {
+            childDesc.setSensor(true);
+          }
+          nextWorld.createCollider(childDesc, body);
+          nextColliderCount += 1;
+        }
+      } else {
+        const colliderDesc = this.makePrimitiveColliderDesc(physics.shape, scale);
+        if (physics.sensor) {
+          colliderDesc.setSensor(true);
+        }
+        nextWorld.createCollider(colliderDesc, body);
+        nextColliderCount += 1;
+      }
 
       nextBodyMap.set(entity.id, body);
-      nextColliderMap.set(entity.id, collider);
-      nextColliderCount += 1;
+      nextColliderMap.set(entity.id, body.collider(0)!);
     }
+
+    // Step once so Rapier populates its broad-phase acceleration structure
+    // before the character controller queries it.
+    nextWorld.step();
 
     const nextCharacterController = nextWorld.createCharacterController(0.08);
     nextCharacterController.setSlideEnabled(true);
-    nextCharacterController.enableAutostep(0.6, 0.25, false);
+    nextCharacterController.enableAutostep(0.2, 0.25, false);
     nextCharacterController.setMaxSlopeClimbAngle(Math.PI * 0.35);
     nextCharacterController.setMinSlopeSlideAngle(Math.PI * 0.45);
     nextCharacterController.enableSnapToGround(0.3);
@@ -118,6 +152,19 @@ export class PhysicsRuntime {
     for (const [entityId, collider] of nextColliderMap) {
       this.colliderMap.set(entityId, collider);
     }
+
+    // Diagnostic summary
+    let staticCount = 0;
+    let kinematicCount = 0;
+    let dynamicCount = 0;
+    for (const body of nextBodyMap.values()) {
+      if (body.isFixed()) staticCount += 1;
+      else if (body.isKinematic()) kinematicCount += 1;
+      else dynamicCount += 1;
+    }
+    console.log(
+      `[physics-sync] bodies=${nextBodyMap.size} (static=${staticCount} kinematic=${kinematicCount} dynamic=${dynamicCount}) colliders=${nextColliderCount}`,
+    );
   }
 
   step(): void {
@@ -201,32 +248,11 @@ export class PhysicsRuntime {
   }
 
   holdCharacter(entityId: string): CharacterMoveResult | null {
-    const body = this.bodyMap.get(entityId);
-    const collider = this.colliderMap.get(entityId);
-    if (!body || !collider || !body.isKinematic() || !this.characterController) {
-      return null;
-    }
-
-    const current = body.translation();
-    const position = {
-      x: current.x,
-      y: current.y,
-      z: current.z,
-    };
-    body.setNextKinematicTranslation(position);
-    body.setTranslation(position, false);
-    this.world.propagateModifiedBodyPositionsToColliders();
-
-    const result = {
-      position,
-      grounded: this.debugState.get(entityId)?.grounded ?? false,
-      collisions: this.debugState.get(entityId)?.collisions ?? 0,
-    };
-    this.debugState.set(entityId, {
-      ...result,
-      desiredDelta: { x: 0, y: 0, z: 0 },
+    return this.moveCharacter(entityId, {
+      x: 0,
+      y: PhysicsRuntime.SETTLE_DOWN_DELTA,
+      z: 0,
     });
-    return result;
   }
 
   teleportCharacter(entityId: string, position: Vec3): CharacterMoveResult | null {
@@ -251,39 +277,32 @@ export class PhysicsRuntime {
     return result;
   }
 
-  private makeColliderDesc(
-    entity: ReturnType<typeof resolveEntity>,
-    physics: NonNullable<ReturnType<typeof resolveEntity>["components"]["physics"]>,
+  private makePrimitiveColliderDesc(
+    shape: PhysicsPrimitiveShape,
+    scale: Vec3,
   ): RAPIERModule.ColliderDesc {
-    const scale = entity.transform.scale ?? { x: 1, y: 1, z: 1 };
-    let colliderDesc: RAPIERModule.ColliderDesc;
-
-    switch (physics.shape.type) {
+    switch (shape.type) {
       case "box":
-        colliderDesc = this.rapier.ColliderDesc.cuboid(
-          physics.shape.size.x * scale.x * 0.5,
-          physics.shape.size.y * scale.y * 0.5,
-          physics.shape.size.z * scale.z * 0.5,
+        return this.rapier.ColliderDesc.cuboid(
+          shape.size.x * scale.x * 0.5,
+          shape.size.y * scale.y * 0.5,
+          shape.size.z * scale.z * 0.5,
         );
-        break;
       case "sphere":
-        colliderDesc = this.rapier.ColliderDesc.ball(
-          physics.shape.radius * Math.max(scale.x, scale.y, scale.z),
+        return this.rapier.ColliderDesc.ball(
+          shape.radius * Math.max(scale.x, scale.y, scale.z),
         );
-        break;
       case "capsule":
-        colliderDesc = this.rapier.ColliderDesc.capsule(
-          physics.shape.halfHeight * scale.y,
-          physics.shape.radius * Math.max(scale.x, scale.z),
+        return this.rapier.ColliderDesc.capsule(
+          shape.halfHeight * scale.y,
+          shape.radius * Math.max(scale.x, scale.z),
         );
-        break;
+      case "cylinder":
+        return this.rapier.ColliderDesc.cylinder(
+          shape.halfHeight * scale.y,
+          shape.radius * Math.max(scale.x, scale.z),
+        );
     }
-
-    if (physics.sensor) {
-      colliderDesc.setSensor(true);
-    }
-
-    return colliderDesc;
   }
 
   private retireCurrentWorld(): void {
@@ -319,4 +338,23 @@ export class PhysicsRuntime {
 
 function formatVec3(value: Vec3): string {
   return `(${value.x.toFixed(2)}, ${value.y.toFixed(2)}, ${value.z.toFixed(2)})`;
+}
+
+function eulerToQuaternion(rotation: Rotation3): { x: number; y: number; z: number; w: number } {
+  const halfX = rotation.x * 0.5;
+  const halfY = rotation.y * 0.5;
+  const halfZ = rotation.z * 0.5;
+  const sx = Math.sin(halfX);
+  const cx = Math.cos(halfX);
+  const sy = Math.sin(halfY);
+  const cy = Math.cos(halfY);
+  const sz = Math.sin(halfZ);
+  const cz = Math.cos(halfZ);
+
+  return {
+    x: sx * cy * cz + cx * sy * sz,
+    y: cx * sy * cz - sx * cy * sz,
+    z: cx * cy * sz + sx * sy * cz,
+    w: cx * cy * cz - sx * sy * sz,
+  };
 }

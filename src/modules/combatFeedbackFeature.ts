@@ -45,6 +45,16 @@ export class CombatFeedbackFeature implements RuntimeFeature {
         context.scene.setPlayerDangerLevel(event.level);
         return;
       }
+      case "objective_step_completed": {
+        context.scene.flashEntity(event.playerId, "#9ee493", 0.24, 0.55);
+        context.scene.spawnFloatingMarker(event.playerId, "STEP COMPLETE", "info");
+        return;
+      }
+      case "objective_completed": {
+        context.scene.flashEntity(event.playerId, "#f4d35e", 0.34, 0.8);
+        context.scene.spawnFloatingMarker(event.playerId, "OBJECTIVE COMPLETE", "info");
+        return;
+      }
       default:
         return assertUnreachable(event);
     }

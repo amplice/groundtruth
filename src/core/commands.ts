@@ -61,7 +61,12 @@ export function applyCommands(
   for (const command of commands) {
     switch (command.op) {
       case "reset_world":
-        world = emptyWorld();
+        world = {
+          ...emptyWorld(),
+          gameMode: sourceWorld.gameMode,
+          settings: cloneWorld(sourceWorld).settings,
+          prefabs: cloneWorld(sourceWorld).prefabs,
+        };
         break;
       case "load_world":
         world = cloneWorld(command.world);

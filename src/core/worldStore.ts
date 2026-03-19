@@ -7,6 +7,7 @@ import {
 import {
   emptyWorld,
   EntityComponents,
+  ObjectiveProgressSnapshot,
   ProjectPlaytestSnapshot,
   ProjectDocument,
   Transform,
@@ -266,6 +267,23 @@ export class WorldStore {
     if (emit) {
       this.syncCurrentWorldIntoProject();
       this.project.metadata.updatedAt = new Date().toISOString();
+      this.worldRevision += 1;
+      this.emit("world");
+    }
+  }
+
+  updateObjectiveProgress(
+    objectiveId: string,
+    progress: ObjectiveProgressSnapshot,
+    emit = false,
+  ): void {
+    this.world.objectiveProgress = {
+      ...(this.world.objectiveProgress ?? {}),
+      [objectiveId]: JSON.parse(JSON.stringify(progress)) as ObjectiveProgressSnapshot,
+    };
+    this.syncCurrentWorldIntoProject();
+    this.project.metadata.updatedAt = new Date().toISOString();
+    if (emit) {
       this.worldRevision += 1;
       this.emit("world");
     }

@@ -3,6 +3,7 @@ export {
   makeFlatOutpostWorld,
   makeTownGridWorld,
   makeThirdPersonSurvivalWorld,
+  makeUrbanCityWorld,
 } from "./worldFactory";
 export type { FlatWorldOptions } from "./worldFactory";
 

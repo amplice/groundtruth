@@ -9,6 +9,7 @@ import {
   CameraRigComponent,
   EntitySpec,
   ModelRenderComponent,
+  PhysicsShape,
   PrimitiveRenderComponent,
   RenderComponent,
   ResolvedEntity,
@@ -50,6 +51,13 @@ interface FloatingMarker {
   driftY: number;
 }
 
+interface ProjectileTrace {
+  mesh: THREE.Mesh;
+  velocity: THREE.Vector3;
+  remainingSeconds: number;
+  durationSeconds: number;
+}
+
 interface HealthBarState {
   element: HTMLDivElement;
   fill: HTMLDivElement;
@@ -81,7 +89,15 @@ export interface AssetReport {
   status: "loading" | "ready" | "error";
   warnings: string[];
   clips: AssetClipReport[];
+  availableClipNames: string[];
   error?: string;
+}
+
+export interface AssetLoadSummary {
+  total: number;
+  ready: number;
+  loading: number;
+  error: number;
 }
 
 export interface SceneStats {
@@ -127,6 +143,8 @@ export class SceneRuntime {
 
   private readonly sectorGroup = new THREE.Group();
 
+  private readonly previewGroup = new THREE.Group();
+
   private readonly raycaster = new THREE.Raycaster();
 
   private readonly pointer = new THREE.Vector2();
@@ -140,6 +158,8 @@ export class SceneRuntime {
   private readonly gltfLoader = new GLTFLoader();
 
   private readonly fbxLoader = new FBXLoader();
+
+  private readonly textureLoader = new THREE.TextureLoader();
 
   private readonly modelCache = new Map<string, Promise<LoadedModelAsset>>();
 
@@ -156,6 +176,8 @@ export class SceneRuntime {
   private readonly feedbackLayer: HTMLDivElement;
 
   private readonly floatingMarkers = new Set<FloatingMarker>();
+
+  private readonly projectileTraces = new Set<ProjectileTrace>();
 
   private readonly healthBarLayer: HTMLDivElement;
 
@@ -188,6 +210,14 @@ export class SceneRuntime {
   private currentSectorOverlaySignature = "";
 
   private currentFirstPersonTargetId: string | null = null;
+
+  private previewBinding: AnimationBinding | null = null;
+
+  private previewReport: AssetReport | null = null;
+
+  private previewAnimationState: AnimationComponent | undefined;
+
+  private previewActive = false;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -233,6 +263,7 @@ export class SceneRuntime {
     this.scene.add(this.entityGroup);
     this.scene.add(this.zoneGroup);
     this.scene.add(this.sectorGroup);
+    this.scene.add(this.previewGroup);
     this.scene.add(new THREE.GridHelper(220, 44, 0x657d8b, 0x94a7b2));
 
     const hemi = new THREE.HemisphereLight(0xe6eef7, 0x4e5f49, 1.2);
@@ -257,6 +288,7 @@ export class SceneRuntime {
     this.clearGroup(this.entityGroup);
     this.clearGroup(this.zoneGroup);
     this.clearGroup(this.sectorGroup);
+    this.clearProjectileTraces();
     this.entityMap.clear();
     this.desiredAnimations.clear();
     this.assetReports.clear();
@@ -314,7 +346,9 @@ export class SceneRuntime {
     for (const binding of this.animationBindings.values()) {
       binding.mixer.update(dtSeconds);
     }
+    this.previewBinding?.mixer.update(dtSeconds);
     this.tickFlashStates(dtSeconds);
+    this.tickProjectileTraces(dtSeconds);
     this.tickFloatingMarkers(dtSeconds);
     this.tickHealthBars();
     this.tickWorldLabels();
@@ -411,6 +445,85 @@ export class SceneRuntime {
     this.controls.enabled = enabled;
   }
 
+  setAssetFitPreview(
+    prefabId: string | null,
+    prefabName: string | null,
+    render: ModelRenderComponent | null,
+    animation?: AnimationComponent,
+    physicsShape?: PhysicsShape | null,
+  ): void {
+    this.clearPreview();
+    this.previewAnimationState = animation;
+    if (!prefabId || !prefabName || !render) {
+      return;
+    }
+
+    // Add collision wireframe if shape provided
+    if (physicsShape) {
+      const wireframe = this.buildColliderWireframes(physicsShape);
+      if (wireframe) {
+        this.previewGroup.add(wireframe);
+      }
+    }
+
+    this.previewReport = {
+      entityId: prefabId,
+      entityName: prefabName,
+      uri: render.uri,
+      format: render.format ?? inferModelFormat(render.uri),
+      status: "loading",
+      warnings: [],
+      clips: [],
+      availableClipNames: [],
+    };
+
+    this.loadModel(render)
+      .then((asset) => {
+        const modelRoot = this.instantiateModel(asset.scene);
+        this.applyModelRenderTransform(modelRoot, render);
+        this.previewGroup.add(modelRoot);
+        this.focusPreviewObject(modelRoot);
+
+        if (asset.animations.length > 0) {
+          const mixer = new THREE.AnimationMixer(modelRoot);
+          const actions = new Map<string, THREE.AnimationAction>();
+          for (const clip of asset.animations) {
+            actions.set(clip.name, mixer.clipAction(clip));
+          }
+          const binding: AnimationBinding = {
+            mixer,
+            actions,
+            clipAliases: new Map(Object.entries(render.clips ?? {})),
+            activeClipName: null,
+            activeState: null,
+            effectiveSpeed: 1,
+            loopMode: "repeat",
+          };
+          this.previewBinding = binding;
+          this.previewReport = this.buildPreviewAssetReport(prefabId, prefabName, render, binding);
+          this.applyAnimationState(binding, animation);
+          return;
+        }
+
+        this.previewReport = this.buildPreviewAssetReport(prefabId, prefabName, render);
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        this.previewReport = {
+          entityId: prefabId,
+          entityName: prefabName,
+          uri: render.uri,
+          format: render.format ?? inferModelFormat(render.uri),
+          status: "error",
+          warnings: [],
+          clips: [],
+          availableClipNames: [],
+          error: message,
+        };
+        console.error(`Failed to load asset-fit preview '${render.uri}' for prefab '${prefabId}'.`, error);
+      });
+  }
+
   getAnimationDuration(entityId: string, state: string): number | null {
     const binding = this.animationBindings.get(entityId);
     if (!binding) {
@@ -428,7 +541,45 @@ export class SceneRuntime {
         ...report,
         warnings: [...report.warnings],
         clips: report.clips.map((clip) => ({ ...clip })),
+        availableClipNames: [...report.availableClipNames],
       }));
+  }
+
+  getAssetLoadSummary(): AssetLoadSummary {
+    let ready = 0;
+    let loading = 0;
+    let error = 0;
+    for (const report of this.assetReports.values()) {
+      switch (report.status) {
+        case "ready":
+          ready += 1;
+          break;
+        case "loading":
+          loading += 1;
+          break;
+        case "error":
+          error += 1;
+          break;
+      }
+    }
+    return {
+      total: this.assetReports.size,
+      ready,
+      loading,
+      error,
+    };
+  }
+
+  getAssetFitPreviewReport(): AssetReport | null {
+    if (!this.previewReport) {
+      return null;
+    }
+    return {
+      ...this.previewReport,
+      warnings: [...this.previewReport.warnings],
+      clips: this.previewReport.clips.map((clip) => ({ ...clip })),
+      availableClipNames: [...this.previewReport.availableClipNames],
+    };
   }
 
   getEntityVisualDebug(entityId: string): string[] {
@@ -537,6 +688,40 @@ export class SceneRuntime {
     this.positionFloatingMarker(marker, 0);
   }
 
+  spawnProjectileTrace(
+    from: { x: number; y: number; z: number },
+    to: { x: number; y: number; z: number },
+    color = "#ffd07a",
+  ): void {
+    const start = new THREE.Vector3(from.x, from.y, from.z);
+    const end = new THREE.Vector3(to.x, to.y, to.z);
+    const direction = end.clone().sub(start);
+    const distance = direction.length();
+    if (distance <= 0.01) {
+      return;
+    }
+    direction.normalize();
+
+    const geometry = new THREE.SphereGeometry(0.08, 12, 8);
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      transparent: true,
+      opacity: 0.95,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.position.copy(start);
+    this.scene.add(mesh);
+
+    const speed = 28;
+    const durationSeconds = Math.max(0.08, Math.min(0.8, distance / speed));
+    this.projectileTraces.add({
+      mesh,
+      velocity: direction.multiplyScalar(speed),
+      remainingSeconds: durationSeconds,
+      durationSeconds,
+    });
+  }
+
   getStats(): SceneStats {
     const info = this.renderer.info.render;
     return {
@@ -619,10 +804,13 @@ export class SceneRuntime {
     if (render.type === "model") {
       return this.buildModelNode(entity, render);
     }
-    return this.buildPrimitive(render);
+    return this.buildPrimitive(entity, render);
   }
 
-  private buildPrimitive(render: PrimitiveRenderComponent): THREE.Mesh {
+  private buildPrimitive(
+    entity: ReturnType<typeof resolveEntity>,
+    render: PrimitiveRenderComponent,
+  ): THREE.Mesh {
     let geometry: THREE.BufferGeometry;
     switch (render.primitive) {
       case "box":
@@ -665,6 +853,19 @@ export class SceneRuntime {
       opacity: render.opacity ?? 1,
       wireframe: render.wireframe ?? false,
     });
+    if (render.textureUri) {
+      const texture = this.textureLoader.load(render.textureUri);
+      texture.wrapS = THREE.RepeatWrapping;
+      texture.wrapT = THREE.RepeatWrapping;
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+      const repeat = render.textureRepeat;
+      const scale = entity.transform.scale;
+      const repeatX = (repeat?.x ?? 1) * (scale?.x ?? 1);
+      const repeatY = (repeat?.z ?? repeat?.y ?? 1) * (scale?.z ?? 1);
+      texture.repeat.set(repeatX, repeatY);
+      material.map = texture;
+    }
     const mesh = new THREE.Mesh(geometry, material);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
@@ -710,6 +911,7 @@ export class SceneRuntime {
       status: "loading",
       warnings: [],
       clips: [],
+      availableClipNames: [],
     });
 
     this.loadModel(render)
@@ -732,6 +934,7 @@ export class SceneRuntime {
           status: "error",
           warnings: [],
           clips: [],
+          availableClipNames: [],
           error: message,
         });
         console.error(`Failed to load model '${render.uri}' for entity '${entity.id}'.`, error);
@@ -939,6 +1142,33 @@ export class SceneRuntime {
     }
   }
 
+  private tickProjectileTraces(dtSeconds: number): void {
+    for (const trace of [...this.projectileTraces]) {
+      trace.remainingSeconds -= dtSeconds;
+      trace.mesh.position.addScaledVector(trace.velocity, dtSeconds);
+      const material = trace.mesh.material;
+      if (material instanceof THREE.MeshBasicMaterial) {
+        const normalized = trace.durationSeconds <= 0
+          ? 1
+          : 1 - Math.max(0, trace.remainingSeconds) / trace.durationSeconds;
+        material.opacity = Math.max(0, 0.95 - normalized * 0.75);
+      }
+      if (trace.remainingSeconds <= 0) {
+        trace.mesh.removeFromParent();
+        trace.mesh.geometry.dispose();
+        const meshMaterial = trace.mesh.material;
+        if (meshMaterial instanceof THREE.Material) {
+          meshMaterial.dispose();
+        } else if (Array.isArray(meshMaterial)) {
+          for (const item of meshMaterial) {
+            item.dispose();
+          }
+        }
+        this.projectileTraces.delete(trace);
+      }
+    }
+  }
+
   private positionFloatingMarker(marker: FloatingMarker, normalizedLifetime: number): void {
     const object = this.entityMap.get(marker.entityId);
     if (!object) {
@@ -962,6 +1192,22 @@ export class SceneRuntime {
       marker.element.remove();
     }
     this.floatingMarkers.clear();
+  }
+
+  private clearProjectileTraces(): void {
+    for (const trace of this.projectileTraces) {
+      trace.mesh.removeFromParent();
+      trace.mesh.geometry.dispose();
+      const material = trace.mesh.material;
+      if (material instanceof THREE.Material) {
+        material.dispose();
+      } else if (Array.isArray(material)) {
+        for (const item of material) {
+          item.dispose();
+        }
+      }
+    }
+    this.projectileTraces.clear();
   }
 
   private createHealthBar(entityId: string, current: number, max: number): void {
@@ -1470,8 +1716,9 @@ export class SceneRuntime {
       return;
     }
 
-    const clipName = binding.clipAliases.get(animation.state) ?? animation.state;
-    const action = binding.actions.get(clipName);
+    const resolvedClip = this.resolveClipAction(binding, animation.state);
+    const clipName = resolvedClip?.clipName ?? binding.clipAliases.get(animation.state) ?? animation.state;
+    const action = resolvedClip?.action;
     if (!action) {
       return;
     }
@@ -1587,7 +1834,54 @@ export class SceneRuntime {
       hasContent = true;
     }
 
+    if (entity.components.physics) {
+      const colliderGroup = this.buildColliderWireframes(entity.components.physics.shape);
+      if (colliderGroup) {
+        group.add(colliderGroup);
+        hasContent = true;
+      }
+    }
+
     return hasContent ? group : null;
+  }
+
+  private buildColliderWireframes(
+    shape: import("../core/schema").PhysicsShape,
+  ): THREE.Object3D | null {
+    const mat = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.45 });
+
+    switch (shape.type) {
+      case "box": {
+        const geo = new THREE.EdgesGeometry(new THREE.BoxGeometry(shape.size.x, shape.size.y, shape.size.z));
+        return new THREE.LineSegments(geo, mat);
+      }
+      case "sphere": {
+        const geo = new THREE.EdgesGeometry(new THREE.SphereGeometry(shape.radius, 12, 8));
+        return new THREE.LineSegments(geo, mat);
+      }
+      case "capsule": {
+        const geo = new THREE.EdgesGeometry(new THREE.CapsuleGeometry(shape.radius, shape.halfHeight * 2, 6, 12));
+        return new THREE.LineSegments(geo, mat);
+      }
+      case "cylinder": {
+        const geo = new THREE.EdgesGeometry(new THREE.CylinderGeometry(shape.radius, shape.radius, shape.halfHeight * 2, 16));
+        return new THREE.LineSegments(geo, mat);
+      }
+      case "compound": {
+        const group = new THREE.Group();
+        for (const child of shape.children) {
+          const childWire = this.buildColliderWireframes(child.shape);
+          if (childWire) {
+            childWire.position.set(child.offset.x, child.offset.y, child.offset.z);
+            if (child.rotation) {
+              childWire.rotation.set(child.rotation.x, child.rotation.y, child.rotation.z);
+            }
+            group.add(childWire);
+          }
+        }
+        return group;
+      }
+    }
   }
 
   private buildRadiusRing(
@@ -1630,8 +1924,9 @@ export class SceneRuntime {
     const clips: AssetClipReport[] = [];
     const warnings: string[] = [];
     for (const state of expectedStates) {
-      const clipName = binding?.clipAliases.get(state) ?? state;
-      const action = binding?.actions.get(clipName);
+      const resolvedClip = binding ? this.resolveClipAction(binding, state) : null;
+      const clipName = resolvedClip?.clipName ?? binding?.clipAliases.get(state) ?? state;
+      const action = resolvedClip?.action;
       clips.push({
         state,
         clipName,
@@ -1642,6 +1937,10 @@ export class SceneRuntime {
         warnings.push(`Missing clip for semantic state '${state}'.`);
       }
     }
+    if (binding && binding.actions.size > 0) {
+      const availableClips = [...binding.actions.keys()].sort();
+      warnings.push(`Available clips: ${availableClips.join(", ")}`);
+    }
 
     return {
       entityId: entity.id,
@@ -1651,12 +1950,137 @@ export class SceneRuntime {
       status: binding ? "ready" : "loading",
       warnings,
       clips,
+      availableClipNames: binding ? [...binding.actions.keys()].sort() : [],
     };
+  }
+
+  private buildPreviewAssetReport(
+    prefabId: string,
+    prefabName: string,
+    render: ModelRenderComponent,
+    binding?: AnimationBinding,
+  ): AssetReport {
+    const expectedStates = new Set<string>([
+      ...Object.keys(render.animationSources ?? {}),
+      ...Object.keys(render.clips ?? {}),
+    ]);
+
+    if (this.previewAnimationState?.state) {
+      expectedStates.add(this.previewAnimationState.state);
+    }
+
+    const clips: AssetClipReport[] = [];
+    const warnings: string[] = [];
+    for (const state of expectedStates) {
+      const resolvedClip = binding ? this.resolveClipAction(binding, state) : null;
+      const clipName = resolvedClip?.clipName ?? binding?.clipAliases.get(state) ?? state;
+      const action = resolvedClip?.action;
+      clips.push({
+        state,
+        clipName,
+        durationSeconds: action ? action.getClip().duration : null,
+        status: action ? "loaded" : "missing",
+      });
+      if (!action) {
+        warnings.push(`Missing clip for semantic state '${state}'.`);
+      }
+    }
+    const availableClipNames = binding ? [...binding.actions.keys()].sort() : [];
+    if (availableClipNames.length > 0) {
+      warnings.push(`Available clips: ${availableClipNames.join(", ")}`);
+    }
+
+    return {
+      entityId: prefabId,
+      entityName: prefabName,
+      uri: render.uri,
+      format: render.format ?? inferModelFormat(render.uri),
+      status: binding ? "ready" : "loading",
+      warnings,
+      clips,
+      availableClipNames,
+    };
+  }
+
+  private clearPreview(): void {
+    if (this.previewBinding) {
+      this.previewBinding.mixer.stopAllAction();
+      this.previewBinding = null;
+    }
+    this.previewReport = null;
+    this.previewAnimationState = undefined;
+    this.clearGroup(this.previewGroup);
+  }
+
+  private focusPreviewObject(object: THREE.Object3D): void {
+    const box = new THREE.Box3().setFromObject(object);
+    const size = box.getSize(new THREE.Vector3());
+    const center = box.getCenter(new THREE.Vector3());
+    const radius = Math.max(size.x, size.y, size.z, 1);
+    const offset = new THREE.Vector3(radius * 1.1, radius * 0.85 + 1.25, radius * 1.1);
+    this.controls.target.copy(center);
+    this.camera.position.copy(center.clone().add(offset));
+    this.controls.update();
+  }
+
+  private resolveClipAction(
+    binding: AnimationBinding,
+    state: string,
+  ): { clipName: string; action: THREE.AnimationAction } | null {
+    const alias = binding.clipAliases.get(state);
+    const candidates = [alias, state].filter((value): value is string => Boolean(value));
+
+    for (const candidate of candidates) {
+      const exact = binding.actions.get(candidate);
+      if (exact) {
+        return { clipName: candidate, action: exact };
+      }
+    }
+
+    for (const candidate of candidates) {
+      const lower = candidate.toLowerCase();
+      for (const [clipName, action] of binding.actions) {
+        if (clipName.toLowerCase() === lower) {
+          return { clipName, action };
+        }
+      }
+    }
+
+    const normalizedCandidates = candidates.map((candidate) => ({
+      raw: candidate,
+      normalized: normalizeClipToken(candidate),
+    }));
+
+    for (const candidate of normalizedCandidates) {
+      for (const [clipName, action] of binding.actions) {
+        if (normalizeClipToken(clipName) === candidate.normalized) {
+          return { clipName, action };
+        }
+      }
+    }
+
+    for (const candidate of normalizedCandidates) {
+      for (const [clipName, action] of binding.actions) {
+        const normalizedClip = normalizeClipToken(clipName);
+        if (
+          normalizedClip.includes(candidate.normalized) ||
+          candidate.normalized.includes(normalizedClip)
+        ) {
+          return { clipName, action };
+        }
+      }
+    }
+
+    return null;
   }
 }
 
 function inferModelFormat(uri: string): "gltf" | "fbx" {
   return uri.toLowerCase().endsWith(".fbx") ? "fbx" : "gltf";
+}
+
+function normalizeClipToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
 }
 
 function inferEntityLegibilityState(entity: ResolvedEntity): {
@@ -1727,6 +2151,26 @@ function inferEntityMarkerRadius(entity: ResolvedEntity): number {
       return shape.radius + 0.12;
     case "box":
       return (Math.max(shape.size.x, shape.size.z) * 0.5) + 0.08;
+    case "cylinder":
+      return shape.radius + 0.1;
+    case "compound": {
+      let maxR = 0.5;
+      for (const child of shape.children) {
+        const cr = inferChildRadius(child.shape);
+        const offset = Math.sqrt(child.offset.x ** 2 + child.offset.z ** 2);
+        maxR = Math.max(maxR, cr + offset);
+      }
+      return maxR + 0.08;
+    }
+  }
+}
+
+function inferChildRadius(shape: import("../core/schema").PhysicsPrimitiveShape): number {
+  switch (shape.type) {
+    case "capsule": return shape.radius;
+    case "sphere": return shape.radius;
+    case "box": return Math.max(shape.size.x, shape.size.z) * 0.5;
+    case "cylinder": return shape.radius;
   }
 }
 

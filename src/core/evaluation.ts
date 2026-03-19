@@ -669,6 +669,25 @@ function shapeExtents(
         z: radius,
       };
     }
+    case "cylinder": {
+      const cRadius = shape.radius * Math.max(actualScale.x, actualScale.z);
+      return {
+        x: cRadius,
+        y: shape.halfHeight * actualScale.y,
+        z: cRadius,
+      };
+    }
+    case "compound": {
+      // approximate bounding box from all children
+      let maxX = 0.5, maxY = 0.5, maxZ = 0.5;
+      for (const child of shape.children) {
+        const childExtents = shapeExtents(child.shape, scale);
+        maxX = Math.max(maxX, Math.abs(child.offset.x * actualScale.x) + childExtents.x);
+        maxY = Math.max(maxY, Math.abs(child.offset.y * actualScale.y) + childExtents.y);
+        maxZ = Math.max(maxZ, Math.abs(child.offset.z * actualScale.z) + childExtents.z);
+      }
+      return { x: maxX, y: maxY, z: maxZ };
+    }
   }
 }
 
@@ -848,7 +867,11 @@ function zoneAabb(zone: ZoneSpec): { min: Vec3; max: Vec3 } {
 }
 
 function isIgnoredForOverlap(entity: ResolvedEntity): boolean {
-  return entity.id === "ground" || entity.id.startsWith("road.") || entity.prefabId === "road_strip";
+  return entity.id === "ground"
+    || entity.id.startsWith("road.")
+    || entity.id.startsWith("urban.road.")
+    || entity.prefabId === "road_strip"
+    || entity.prefabId?.startsWith("urban_road_") === true;
 }
 
 function isBlockingObstacle(entity: ResolvedEntity): boolean {

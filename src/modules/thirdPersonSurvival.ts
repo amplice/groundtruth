@@ -28,9 +28,12 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
     const populationStats = this.sectorPopulation?.getStats();
     const hostileStats = this.hostileAI?.getStats();
     const inventory = player.components.inventory;
+    const ammoLine = this.buildAmmoLine(player);
     const baseLines = [
       this.getControlLine(),
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
+      this.buildPositionLine(player),
+      ...(ammoLine ? [ammoLine] : []),
       `Zombies ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
       hostileStats && populationStats
         ? `${hostileStats.summary} | Dormant ${populationStats.dormantCount} | Pooled ${populationStats.pooledCount} | Growing ${populationStats.growingSectorCount} | Cooling ${populationStats.shrinkingSectorCount}`
@@ -50,12 +53,12 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
       this.statusLines = [...baseLines, overrideLine];
       return;
     }
-    for (const feature of this.features) {
-      const statusHint = feature.getStatusHint?.(context, this, player);
-      if (statusHint) {
-        this.statusLines = [...baseLines, statusHint];
-        return;
-      }
+    const hints = this.features
+      .map((feature) => feature.getStatusHint?.(context, this, player))
+      .filter((hint): hint is string => Boolean(hint));
+    if (hints.length > 0) {
+      this.statusLines = [...baseLines, ...hints.slice(0, 2)];
+      return;
     }
     this.statusLines = [...baseLines, this.getIdlePrompt()];
   }
@@ -83,6 +86,7 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
 
     const findings = [
       `Player HP: ${this.readHealth(player)}`,
+      this.buildPositionLine(player),
       `Dead zombies: ${deadZombies}`,
       `Empty loot crates: ${emptyCrates}`,
       `Zombie activity: ${this.hostileActivityCounts.active} active, ${this.hostileActivityCounts.throttled} throttled, ${this.hostileActivityCounts.sleeping} sleeping`,

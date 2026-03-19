@@ -31,7 +31,7 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
-  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "objective_progress"],
   gameplayPolicy: {
     controls: {
       attackKey: "Space",
@@ -41,8 +41,8 @@ export const THIRD_PERSON_ACTION_PRESET: ActionModulePreset = {
     },
     camera: {
       mode: "follow",
-      distance: 10.5,
-      pitch: 0.78,
+      distance: 12.5,
+      pitch: 1.0,
       yaw: 0.75,
     },
     facing: {
@@ -86,7 +86,7 @@ export const FIRST_PERSON_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "first_person",
   hostileBehavior: "arena_3d",
   worldLayout: "third_person",
-  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "objective_progress"],
   gameplayPolicy: {
     controls: {
       attackKey: "Space",
@@ -141,7 +141,7 @@ export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
   playerMovementMode: "third_person",
   hostileBehavior: "survival_zombie",
   worldLayout: "third_person",
-  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "sector_population"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "objective_progress", "sector_population"],
   gameplayPolicy: {
     controls: {
       attackKey: "Space",
@@ -165,7 +165,7 @@ export const THIRD_PERSON_SURVIVAL_PRESET: ActionModulePreset = {
       missCooldownFactor: 0.4,
     },
     loot: {
-      transferMode: "take_one",
+      transferMode: "take_all",
       emptyContainerMode: "despawn",
     },
     respawn: {
@@ -196,7 +196,7 @@ export const TOP_DOWN_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "top_down",
   hostileBehavior: "arena_3d",
   worldLayout: "top_down",
-  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "objective_progress"],
   gameplayPolicy: {
     controls: {
       attackKey: "Space",
@@ -251,7 +251,7 @@ export const PLATFORMER_ACTION_PRESET: ActionModulePreset = {
   playerMovementMode: "platformer",
   hostileBehavior: "lane_2d",
   worldLayout: "platformer",
-  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory"],
+  featureIds: ["hostile_ai", "combat", "combat_feedback", "interaction_inventory", "objective_progress"],
   gameplayPolicy: {
     controls: {
       attackKey: "KeyF",

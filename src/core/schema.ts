@@ -44,6 +44,8 @@ export interface PrimitiveRenderComponent {
   radius?: number;
   height?: number;
   color: string;
+  textureUri?: string;
+  textureRepeat?: Vec3;
   opacity?: number;
   wireframe?: boolean;
 }
@@ -98,10 +100,32 @@ export interface PhysicsCapsuleShape {
   halfHeight: number;
 }
 
-export type PhysicsShape =
+export interface PhysicsCylinderShape {
+  type: "cylinder";
+  radius: number;
+  halfHeight: number;
+}
+
+export interface PhysicsCompoundChild {
+  shape: PhysicsPrimitiveShape;
+  offset: Vec3;
+  rotation?: Rotation3;
+}
+
+export interface PhysicsCompoundShape {
+  type: "compound";
+  children: PhysicsCompoundChild[];
+}
+
+export type PhysicsPrimitiveShape =
   | PhysicsBoxShape
   | PhysicsSphereShape
-  | PhysicsCapsuleShape;
+  | PhysicsCapsuleShape
+  | PhysicsCylinderShape;
+
+export type PhysicsShape =
+  | PhysicsPrimitiveShape
+  | PhysicsCompoundShape;
 
 export interface PhysicsComponent {
   body: "static" | "dynamic" | "kinematic";
@@ -131,6 +155,21 @@ export interface CombatComponent {
   range: number;
   cooldownSeconds: number;
   targetTags?: string[];
+}
+
+export interface RangedCombatComponent {
+  weaponId: string;
+  equipped: boolean;
+  damage: number;
+  range: number;
+  cooldownSeconds: number;
+  projectileSpeed: number;
+  projectileColor?: string;
+  magazineSize: number;
+  ammoInMagazine: number;
+  reserveAmmo: number;
+  reloadSeconds: number;
+  ammoPerPickup: number;
 }
 
 export interface InteractionComponent {
@@ -164,9 +203,42 @@ export interface EntityComponents {
   health?: HealthComponent;
   inventory?: InventoryComponent;
   combat?: CombatComponent;
+  rangedCombat?: RangedCombatComponent;
   interaction?: InteractionComponent;
   brain?: BrainComponent;
   cameraRig?: CameraRigComponent;
+}
+
+export interface CollectLootObjectiveStep {
+  id: string;
+  kind: "collect_loot";
+  description: string;
+  targetCount: number;
+  itemIds?: string[];
+}
+
+export interface ReachZoneObjectiveStep {
+  id: string;
+  kind: "reach_zone";
+  description: string;
+  zoneId: string;
+}
+
+export type ObjectiveStep = CollectLootObjectiveStep | ReachZoneObjectiveStep;
+
+export interface ObjectiveSpec {
+  id: string;
+  name: string;
+  description?: string;
+  steps: ObjectiveStep[];
+}
+
+export interface ObjectiveProgressSnapshot {
+  objectiveId: string;
+  activeStepIndex: number;
+  collectCounts: Record<string, number>;
+  completedStepIds: string[];
+  completed: boolean;
 }
 
 export type PrefabCategory =
@@ -278,6 +350,8 @@ export interface WorldDocument {
   prefabs: Record<string, PrefabSpec>;
   entities: EntitySpec[];
   zones: ZoneSpec[];
+  objectives?: ObjectiveSpec[];
+  objectiveProgress?: Record<string, ObjectiveProgressSnapshot>;
   simulation: WorldSimulationState;
 }
 
@@ -390,6 +464,8 @@ export function emptyWorld(): WorldDocument {
     prefabs: {},
     entities: [],
     zones: [],
+    objectives: [],
+    objectiveProgress: {},
     simulation: {
       sectorPools: [],
       sectorStates: [],

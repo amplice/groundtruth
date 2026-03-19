@@ -33,7 +33,8 @@ export type RuntimeFeatureId =
   | "sector_population"
   | "interaction_inventory"
   | "combat"
-  | "combat_feedback";
+  | "combat_feedback"
+  | "objective_progress";
 
 export type HostileActivityTier = "active" | "throttled" | "sleeping";
 
@@ -59,6 +60,16 @@ export type RuntimeFeatureEvent =
   | {
       type: "player_danger_changed";
       level: number;
+    }
+  | {
+      type: "objective_step_completed";
+      playerId: string;
+      label: string;
+    }
+  | {
+      type: "objective_completed";
+      playerId: string;
+      label: string;
     };
 
 export interface RuntimeFeatureHost {

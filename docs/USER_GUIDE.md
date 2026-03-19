@@ -14,17 +14,25 @@ The easiest way to use it is:
 6. Move around and test the world.
 7. Switch back into authoring tools when you want to edit it.
 
+The top workspaces are now:
+
+- `Project`: save/open/export, templates, world variants, policies, features, command script
+- `World`: world generation, authoring, scene selection, evaluation
+- `Play`: HUD and playtest-facing issues/overlays
+- `Assets`: asset validation and asset fitting
+- `Debug`: deep runtime/session/sector/event details
+
 ## First Run
 
 1. Open Groundtruth in the browser.
-2. In the `Build` workspace, open the `Project` section.
+2. Open the `Project` workspace.
 3. Set the project template to `Survival Outpost`.
 4. Click `Start Project From Template`.
 5. In `Authoring`, click `Play`.
 6. Click once in the viewport so keyboard input goes to the game.
 7. Move around, attack, loot, and test the world.
 
-If you do not want to use a template on the first run, open `Build > World`, pick `Third-Person Survival`, and click `Generate Flat Outpost` or `Generate Town Grid`.
+If you do not want to use a template on the first run, open the `World` workspace, pick `Third-Person Survival`, and click `Generate Flat Outpost`, `Generate Town Grid`, or `Generate Urban City`.
 
 ## Recommended Walkthrough
 
@@ -33,10 +41,10 @@ If you want to understand Groundtruth quickly, use this order:
 1. Start with `Third-Person Survival`.
 2. Use `Start Project From Template` with `Survival Outpost`.
 3. Click `Play` and test movement, combat, and looting.
-4. Open `Runtime > Debug View` and enable `Aggro radii` and `Sector overlay`.
-5. Switch to `Inspect > Evaluation` and read the world warnings.
-6. Go back to `Build > Authoring`, switch to `Place`, and add a few crates or zombies.
-7. Use `Build > Stamps` to apply an `Encounter Cluster` or `Loot Cluster`.
+4. Open `Play > Play View` and enable `Aggro radii` and `Sector overlay`.
+5. Switch to `World > Evaluation` and read the world warnings.
+6. Go back to `World > Authoring`, switch to `Place`, and add a few crates or zombies.
+7. Use `World > Stamps` to apply an `Encounter Cluster` or `Loot Cluster`.
 8. Export a snapshot before experimenting further.
 
 ## Game Modes
@@ -66,11 +74,7 @@ If you want to understand Groundtruth quickly, use this order:
 - Controls: `A/D` move, `Shift` sprint, `Space` jump, `F` attack, `E` interact
 - Best for: side-view movement and traversal testing
 
-## Build Workspace
-
-The `Build` workspace is where you create or reshape the world.
-
-### Project
+## Project Workspace
 
 Use this when you want to start from a coherent template instead of a blank or procedural seed.
 
@@ -78,19 +82,27 @@ Use this when you want to start from a coherent template instead of a blank or p
 - Pick a template
 - Click `Start Project From Template`
 - The selected template will also switch the active game mode for you
-- `Project Worlds` shows the worlds currently stored in the project
-- `Save Current World Copy` stores the active world as another project world
-- `Open Project World` switches the runtime to the selected project world
-- `Export Project` saves the whole active project
+- `World Variants` shows the worlds currently stored inside the project
+- `Save World Variant` stores the active world as another variant inside the same project
+- `Open World Variant` switches the runtime to the selected variant
+- `Save Project` writes the editable project itself as JSON and clears the unsaved-changes state
+- `Export Project` saves a richer project envelope with screenshot/context for sharing or archival
 - `Build Playable Export` saves a player-focused build document
-- `Import Project` restores a previously exported project
-- `Import Playable Export` loads a playable build document back into the editor as a project seed
+- `Open Project` restores a previously saved/exported project
+- `Open Playable Export` loads a playable build document back into the editor as a project seed
+
+Use this rule:
+
+- `Save Project`: normal working file
+- `Export Project`: shareable/archival package
+- `Build Playable Export`: player-facing build seed
 
 Current templates include:
 
 - Survival Outpost
 - Third-Person Arena
 - First-Person Patrol
+- Urban City Survival
 - Top-Down Encounter
 - Platformer Course
 
@@ -105,10 +117,11 @@ npm run export:playable -- --project path/to/your.project.json --out path/to/out
 
 That copies the built web runtime into the output folder, writes `game.json`, and boots the export in player mode instead of the full editor shell.
 
-### World
+## World Workspace
 
 - `Generate Flat Outpost`: creates a normal procedural test world
 - `Generate Town Grid`: creates a town-like road-and-block test world
+- `Generate Urban City`: creates a denser city-block world using the URBAN road/building kit
 - `Generate Scale Test`: creates a larger stress-test world
 - `New Empty World`: gives you a blank world
 - `Load Survival Slice`: loads the authored survival demo
@@ -123,6 +136,7 @@ Use these as a rule of thumb:
 
 - `Generate Flat Outpost` when you want a fast, general-purpose combat sandbox
 - `Generate Town Grid` when you want clearer streets, blocks, and first-person/top-down readability
+- `Generate Urban City` when you want a more authored-feeling streetscape with modular roads, flats, and urban landmarks
 - `Generate Scale Test` when you want to stress sectors and large-world behavior
 
 ### Authoring
@@ -389,3 +403,31 @@ For specific use cases:
 ## In-App Docs
 
 Groundtruth also exposes this guide directly in the UI through the `Docs` button in the viewport header.
+This is where you generate, edit, inspect, and validate the active world.
+
+### World
+### Scene / Inspector / Evaluation
+
+- `Scene`: browse entities and zones, search/filter them, and select them
+- `Inspector`: inspect the selected entity or zone
+- `Evaluation`: read world-level warnings and errors
+- `Selection`: inspect raw JSON for the current selection
+
+## Play Workspace
+
+- `Play View`: toggle HUD/overlay elements like zones, combat ranges, aggro radii, and sector overlay
+- `Issues`: read the combined runtime/command/evaluation issue surface
+- `Playtest`: run named playtest sessions and export reports
+
+## Assets Workspace
+
+- `Assets`: inspect asset load state, clip bindings, and warnings
+- `Asset Fit`: preview assets on a neutral floor, adjust fit/collision, and save back to the prefab
+
+## Debug Workspace
+
+- `Diagnostics`: live state dump
+- `Session`: advanced runtime details
+- `Sectors`: sector simulation internals
+- `Iteration`: suggested next interventions
+- `Events`: recent runtime event log

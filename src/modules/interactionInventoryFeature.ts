@@ -72,16 +72,42 @@ export class InteractionInventoryFeature implements RuntimeFeature {
       return true;
     }
     const remainingItems = containerInventory.itemIds.slice(transferredItems.length);
+    let nextRangedCombat = resolvedPlayer.components.rangedCombat
+      ? { ...resolvedPlayer.components.rangedCombat }
+      : undefined;
+    const nextPlayerItemIds = [...playerInventory.itemIds];
+    const displayedItems: string[] = [];
+    for (const itemId of transferredItems) {
+      if (itemId === "weapon_pistol" && nextRangedCombat) {
+        nextRangedCombat.equipped = true;
+        nextRangedCombat.ammoInMagazine = Math.max(
+          nextRangedCombat.ammoInMagazine,
+          nextRangedCombat.magazineSize,
+        );
+        displayedItems.push("pistol");
+        continue;
+      }
+      if (itemId === "ammo_9mm" && nextRangedCombat) {
+        nextRangedCombat.reserveAmmo += nextRangedCombat.ammoPerPickup;
+        displayedItems.push(`9mm ammo +${nextRangedCombat.ammoPerPickup}`);
+        continue;
+      }
+      nextPlayerItemIds.push(itemId);
+      displayedItems.push(itemId);
+    }
     const nextPlayerInventory: InventoryComponent = {
       ...playerInventory,
-      itemIds: [...playerInventory.itemIds, ...transferredItems],
+      itemIds: nextPlayerItemIds,
     };
     const nextContainerInventory: InventoryComponent = {
       ...containerInventory,
       itemIds: remainingItems,
     };
 
-    context.store.updateEntityComponents(playerId, { inventory: nextPlayerInventory });
+    context.store.updateEntityComponents(playerId, {
+      inventory: nextPlayerInventory,
+      rangedCombat: nextRangedCombat,
+    });
     if (remainingItems.length === 0 && emptyContainerMode === "despawn") {
       context.store.apply([{ op: "delete_entity", entityId: interactive.id }]);
       host.pushEvent(`${interactive.name} was emptied and removed.`);
@@ -99,8 +125,11 @@ export class InteractionInventoryFeature implements RuntimeFeature {
         context,
       );
     }
+    if (transferredItems.includes("weapon_pistol")) {
+      host.pushEvent("Player equipped a pistol.");
+    }
     host.pushEvent(
-      `Player looted ${transferredItems.join(", ")} from ${interactive.name}. Inventory ${nextPlayerInventory.itemIds.length}/${nextPlayerInventory.maxSlots}.`,
+      `Player looted ${displayedItems.join(", ")} from ${interactive.name}. Inventory ${nextPlayerInventory.itemIds.length}/${nextPlayerInventory.maxSlots}.`,
     );
     return true;
   }

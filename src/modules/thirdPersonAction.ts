@@ -74,6 +74,8 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
 
   protected readonly groundedState = new Map<string, boolean>();
 
+  protected readonly locomotionSettleDelta = -0.08;
+
   protected features: RuntimeFeature[];
 
   protected gameplayPolicy: ThirdPersonActionGameplayPolicy;
@@ -122,6 +124,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
   }
 
   protected beginFrame(dtSeconds: number, context: ModuleContext): void {
+    this.gameplayPolicy = resolvePresetGameplayPolicy(this.preset, context.store.peekProject());
     this.tickCooldowns(dtSeconds);
     this.tickAnimationLocks(dtSeconds, context);
     for (const feature of this.features) {
@@ -325,7 +328,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const dirZ = (basis.right.z * axes.x + basis.forward.z * axes.z) / length;
     const movement = context.physics.moveCharacter(playerId, {
       x: dirX * speed * dtSeconds,
-      y: 0,
+      y: this.locomotionSettleDelta,
       z: dirZ * speed * dtSeconds,
     });
     if (!movement) {
@@ -346,6 +349,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       position: movement.position,
       rotation,
     });
+    this.groundedState.set(playerId, movement.grounded);
     context.scene.updateFollowCamera(playerId, activeCameraRig);
   }
 
@@ -380,7 +384,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const dirZ = (basis.right.z * axes.x + basis.forward.z * axes.z) / length;
     const movement = context.physics.moveCharacter(playerId, {
       x: dirX * speed * dtSeconds,
-      y: 0,
+      y: this.locomotionSettleDelta,
       z: dirZ * speed * dtSeconds,
     });
     if (!movement) {
@@ -406,6 +410,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
         z: 0,
       },
     });
+    this.groundedState.set(playerId, movement.grounded);
     context.scene.updateFollowCamera(playerId, cameraRig);
   }
 
@@ -537,7 +542,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       const dirZ = deltaZ / Math.max(distance, 0.001);
       const movement = context.physics.moveCharacter(entity.id, {
         x: dirX * speed * updateDt,
-        y: 0,
+        y: this.locomotionSettleDelta,
         z: dirZ * speed * updateDt,
       });
       if (!movement) {
@@ -559,6 +564,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
         position: movement.position,
         rotation,
       });
+      this.groundedState.set(entity.id, movement.grounded);
       this.recordHostileMotion(entity.id, movement.position, true, updateDt);
     }
   }
@@ -593,7 +599,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     const dirZ = axes.z / length;
     const movement = context.physics.moveCharacter(playerId, {
       x: dirX * speed * dtSeconds,
-      y: 0,
+      y: this.locomotionSettleDelta,
       z: dirZ * speed * dtSeconds,
     });
     if (!movement) {
@@ -615,6 +621,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       position: movement.position,
       rotation,
     });
+    this.groundedState.set(playerId, movement.grounded);
     context.scene.updateFollowCamera(playerId, cameraRig);
   }
 
@@ -800,7 +807,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       const direction = dx < 0 ? -1 : 1;
       const movement = context.physics.moveCharacter(entity.id, {
         x: direction * speed * updateDt,
-        y: -0.03,
+        y: this.locomotionSettleDelta,
         z: 0,
       });
       if (!movement) {
@@ -830,6 +837,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
           z: 0,
         },
       });
+      this.groundedState.set(entity.id, movement.grounded);
       this.recordHostileMotion(entity.id, nextPosition, true, updateDt);
     }
   }
@@ -964,9 +972,12 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     overrideLine?: string,
   ): void {
     const inventory = player.components.inventory;
+    const ammoLine = this.buildAmmoLine(player);
     const baseLines = [
       this.getControlLine(),
       `Player HP ${this.readHealth(player)} | Inventory ${inventory?.itemIds.length ?? 0}/${inventory?.maxSlots ?? 0}`,
+      this.buildPositionLine(player),
+      ...(ammoLine ? [ammoLine] : []),
       `Hostiles ${this.hostileActivityCounts.active} active | ${this.hostileActivityCounts.throttled} throttled | ${this.hostileActivityCounts.sleeping} sleeping`,
     ];
     if (player.components.health) {
@@ -983,12 +994,12 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       this.statusLines = [...baseLines, overrideLine];
       return;
     }
-    for (const feature of this.features) {
-      const statusHint = feature.getStatusHint?.(context, this, player);
-      if (statusHint) {
-        this.statusLines = [...baseLines, statusHint];
-        return;
-      }
+    const hints = this.features
+      .map((feature) => feature.getStatusHint?.(context, this, player))
+      .filter((hint): hint is string => Boolean(hint));
+    if (hints.length > 0) {
+      this.statusLines = [...baseLines, ...hints.slice(0, 2)];
+      return;
     }
     this.statusLines = [...baseLines, this.getIdlePrompt()];
   }
@@ -1014,6 +1025,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
 
     const findings = [
       `Player HP: ${this.readHealth(player)}`,
+      this.buildPositionLine(player),
       `Dead hostiles: ${deadHostiles}`,
       `Empty loot crates: ${emptyCrates}`,
       `Hostile activity: ${this.hostileActivityCounts.active} active, ${this.hostileActivityCounts.throttled} throttled, ${this.hostileActivityCounts.sleeping} sleeping`,
@@ -1022,6 +1034,19 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       findings.push(`Potentially stuck hostiles: ${stuckHostiles.join(", ")}`);
     }
     this.debugFindings = findings;
+  }
+
+  protected buildAmmoLine(player: ResolvedEntity): string | null {
+    const ranged = player.components.rangedCombat;
+    if (!ranged?.equipped) {
+      return null;
+    }
+    return `${ranged.weaponId.toUpperCase()} ${ranged.ammoInMagazine}/${ranged.magazineSize} | Reserve ${ranged.reserveAmmo}`;
+  }
+
+  protected buildPositionLine(player: ResolvedEntity): string {
+    const { x, y, z } = player.transform.position;
+    return `Position ${x.toFixed(1)}, ${y.toFixed(1)}, ${z.toFixed(1)}`;
   }
 
   syncAnimationState(
@@ -1042,17 +1067,20 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     }
 
     const currentState = entity.components?.animation?.state;
+    const currentAnimation = entity.components?.animation;
     const nextAnimation: AnimationComponent = {
-      ...entity.components?.animation,
+      ...currentAnimation,
       state,
-      fadeSeconds: overrides.fadeSeconds ?? entity.components?.animation?.fadeSeconds ?? 0.15,
-      speed: overrides.speed ?? entity.components?.animation?.speed,
+      fadeSeconds: overrides.fadeSeconds ?? currentAnimation?.fadeSeconds ?? 0.15,
+      speed: overrides.speed ?? (currentState === state ? currentAnimation?.speed : undefined),
       loop: overrides.loop ?? this.defaultLoopModeForState(state),
     };
 
     if (
       currentState === nextAnimation.state &&
-      entity.components?.animation?.loop === nextAnimation.loop
+      currentAnimation?.loop === nextAnimation.loop &&
+      currentAnimation?.speed === nextAnimation.speed &&
+      currentAnimation?.fadeSeconds === nextAnimation.fadeSeconds
     ) {
       return;
     }

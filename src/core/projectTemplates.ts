@@ -1,5 +1,5 @@
 import { WorldDocument } from "./schema";
-import { makeFlatOutpostWorld, makeThirdPersonSurvivalWorld, makeTownGridWorld } from "./sampleWorld";
+import { makeFlatOutpostWorld, makeThirdPersonSurvivalWorld, makeTownGridWorld, makeUrbanCityWorld } from "./sampleWorld";
 
 export interface ProjectTemplateDescriptor {
   id: string;
@@ -41,6 +41,19 @@ const projectTemplates: ProjectTemplateDescriptor[] = [
       buildingCount: 12,
       zombieCount: 18,
       crateCount: 5,
+    }),
+  },
+  {
+    id: "urban_city_survival",
+    label: "Urban City Survival",
+    summary: "City-block survival slice built from the URBAN road and apartment kit.",
+    gameMode: "third_person_survival",
+    buildWorld: () => makeUrbanCityWorld({
+      seed: 91,
+      worldHalfExtent: 96,
+      buildingCount: 12,
+      zombieCount: 22,
+      crateCount: 8,
     }),
   },
   {

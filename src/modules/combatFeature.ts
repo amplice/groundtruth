@@ -23,25 +23,120 @@ export class CombatFeature implements RuntimeFeature {
     if (!combat) {
       return true;
     }
+    const rangedCombat = resolvedPlayer.components.rangedCombat;
+    const hasPistol = rangedCombat?.equipped ?? false;
+    const hasUsableRanged = hasPistol && !!rangedCombat && (
+      rangedCombat.ammoInMagazine > 0 || rangedCombat.reserveAmmo > 0
+    );
+
+    if (hasUsableRanged && rangedCombat) {
+      if (rangedCombat.ammoInMagazine <= 0) {
+        if (rangedCombat.reserveAmmo <= 0) {
+          host.setCooldown(playerId, 0.12);
+        } else {
+          const reloaded = Math.min(rangedCombat.magazineSize, rangedCombat.reserveAmmo);
+          context.store.updateEntityComponents(playerId, {
+            rangedCombat: {
+              ...rangedCombat,
+              ammoInMagazine: reloaded,
+              reserveAmmo: rangedCombat.reserveAmmo - reloaded,
+            },
+          });
+          host.setCooldown(playerId, rangedCombat.reloadSeconds);
+          host.pushEvent(`Reloaded pistol (${reloaded}/${rangedCombat.magazineSize}).`);
+          return true;
+        }
+      }
+    }
 
     const targetingMode = host.getGameplayPolicy().combat.targetingMode;
+    const attackRange = hasUsableRanged && rangedCombat ? rangedCombat.range : combat.range;
     const target = targetingMode === "none"
       ? null
-      : host.findNearestHostile(world, resolvedPlayer, combat.range, combat.targetTags);
+      : host.findNearestHostile(world, resolvedPlayer, attackRange, combat.targetTags);
     const attackAction = host.resolveActionDefinition(resolvedPlayer, "attack");
-    const attackDuration = host.resolveActionDuration(context, playerId, attackAction);
+    const attackDuration = hasUsableRanged
+      ? Math.min(0.2, host.resolveActionDuration(context, playerId, attackAction))
+      : host.resolveActionDuration(context, playerId, attackAction);
     const missCooldownFactor = Math.max(0, host.getGameplayPolicy().combat.missCooldownFactor);
-    host.setCooldown(playerId, target ? combat.cooldownSeconds : combat.cooldownSeconds * missCooldownFactor);
+    const attackCooldown = hasUsableRanged && rangedCombat
+      ? rangedCombat.cooldownSeconds
+      : combat.cooldownSeconds;
+    host.setCooldown(playerId, target ? attackCooldown : attackCooldown * missCooldownFactor);
     host.lockAnimationState(playerId, "attack", attackDuration);
-    host.syncAction(context, playerId, attackAction);
+    host.syncAction(
+      context,
+      playerId,
+      hasUsableRanged
+        ? {
+            ...attackAction,
+            speed: Math.max(attackAction.speed ?? 1, 2.4),
+            fallbackSeconds: Math.min(attackAction.fallbackSeconds ?? attackDuration, 0.2),
+            lockMovement: false,
+          }
+        : attackAction,
+    );
 
     if (!target) {
-      host.pushEvent("Player attack missed.");
+      if (hasUsableRanged) {
+        const yaw = resolvedPlayer.transform.rotation?.y ?? 0;
+        const forward = {
+          x: Math.sin(yaw),
+          y: 0,
+          z: Math.cos(yaw),
+        };
+        context.scene.spawnProjectileTrace(
+          muzzlePoint(resolvedPlayer),
+          {
+            x: resolvedPlayer.transform.position.x + forward.x * attackRange,
+            y: resolvedPlayer.transform.position.y + 1.2,
+            z: resolvedPlayer.transform.position.z + forward.z * attackRange,
+          },
+          rangedCombat?.projectileColor ?? "#ffd07a",
+        );
+        if (rangedCombat) {
+          context.store.updateEntityComponents(playerId, {
+            rangedCombat: {
+              ...rangedCombat,
+              ammoInMagazine: Math.max(0, rangedCombat.ammoInMagazine - 1),
+            },
+          });
+          host.pushEvent(`Pistol shot missed. Ammo ${Math.max(0, rangedCombat.ammoInMagazine - 1)}/${rangedCombat.magazineSize}.`);
+        } else {
+          host.pushEvent("Pistol shot missed.");
+        }
+      } else {
+        host.pushEvent("Player attack missed.");
+      }
       return true;
     }
 
-    host.applyDamage(context, target.id, combat.damage);
-    host.pushEvent(`Player hit ${target.name} for ${combat.damage}.`);
+    const damage = hasUsableRanged && rangedCombat ? rangedCombat.damage : combat.damage;
+    if (hasUsableRanged) {
+      context.scene.spawnProjectileTrace(
+        muzzlePoint(resolvedPlayer),
+        {
+          x: target.transform.position.x,
+          y: target.transform.position.y + 1.05,
+          z: target.transform.position.z,
+        },
+        rangedCombat?.projectileColor ?? "#ffd07a",
+      );
+      if (rangedCombat) {
+        context.store.updateEntityComponents(playerId, {
+          rangedCombat: {
+            ...rangedCombat,
+            ammoInMagazine: Math.max(0, rangedCombat.ammoInMagazine - 1),
+          },
+        });
+      }
+    }
+    host.applyDamage(context, target.id, damage);
+    host.pushEvent(
+      hasUsableRanged
+        ? `Player shot ${target.name} for ${damage}.${rangedCombat ? ` Ammo ${Math.max(0, rangedCombat.ammoInMagazine - 1)}/${rangedCombat.magazineSize}.` : ""}`
+        : `Player hit ${target.name} for ${damage}.`,
+    );
     return true;
   }
 
@@ -106,4 +201,13 @@ export class CombatFeature implements RuntimeFeature {
     host.pushEvent(`${resolvedTarget.name} took ${amount} damage.`);
     return true;
   }
+}
+
+function muzzlePoint(player: ReturnType<typeof resolveEntity>): { x: number; y: number; z: number } {
+  const yaw = player.transform.rotation?.y ?? 0;
+  return {
+    x: player.transform.position.x + Math.sin(yaw) * 0.55,
+    y: player.transform.position.y + 1.25,
+    z: player.transform.position.z + Math.cos(yaw) * 0.55,
+  };
 }
