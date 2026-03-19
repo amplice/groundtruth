@@ -22,6 +22,13 @@ Current top-level workspaces:
 - `Assets`: asset validation and asset fitting
 - `Debug`: deep runtime/session/sector/event state
 
+Current shell behavior:
+
+- primary modes are along the top, not buried in the old sidebar
+- the active workspace opens in a thin left tool rail
+- `Play` should stay lighter than `World` and `Assets`
+- `Hide Workspace` is the quick way to maximize viewport space for screenshots or playtesting
+
 ## What Groundtruth Is
 
 Groundtruth is not primarily a raw three.js code-editing task surface.
@@ -66,25 +73,25 @@ Other listed modes are labels or future intent, not full implementations yet.
 ## Recommended Build Loop
 
 1. Choose a mode based on the requested game slice.
-2. Start from `Build > Project` if a template is close enough.
-3. Otherwise use `Build > World`:
+2. Start from `Project` if a template is close enough.
+3. Otherwise use `World`:
    - `Generate Flat Outpost` for general combat sandboxes
    - `Generate Town Grid` for street/block structure
    - `Generate Urban City` for denser modular city-block tests using the URBAN kit
    - `Generate Scale Test` for sector/scale behavior
    - `New Empty World` for a blank authored start
-4. Use `Build > Stamps` to add larger chunks before placing single entities.
-5. Use `Build > Authoring` for manual edits:
+4. Use `World > Stamps` to add larger chunks before placing single entities.
+5. Use `World > Authoring` for manual edits:
    - `Place`
    - `Move`
    - `Resize`
    - `Zone`
-6. Use `Build > Command Script` for repeatable semantic changes.
+6. Use `Project > Command Script` for repeatable semantic changes.
 7. Switch to `Play`, test the world, then read:
-   - `Inspect > Evaluation`
-   - `Runtime > Issues`
-   - `Inspect > Assets`
-   - `Runtime > Events`
+   - `World > Evaluation`
+   - `Debug > Issues`
+   - `Assets > Asset Fit` for asset-level problems
+   - `Debug > Events`
 8. Export a snapshot when the result or failure case is worth preserving.
 9. Use `Save Project` for the normal editable working file and `Export Project` when you want the richer project envelope.
 10. Use `Build > Features` when the project needs capability-level changes such as disabling hostile AI, combat, interaction, combat feedback, or sector population.

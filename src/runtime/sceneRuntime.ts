@@ -9,6 +9,7 @@ import {
   CameraRigComponent,
   EntitySpec,
   ModelRenderComponent,
+  PrefabSpec,
   PhysicsShape,
   PrimitiveRenderComponent,
   RenderComponent,
@@ -16,6 +17,8 @@ import {
   Transform,
   WorldDocument,
   ZoneSpec,
+  emptyWorld,
+  makeVec3,
   resolveEntity,
 } from "../core/schema";
 import { RuntimeSectorOverlay } from "../modules/types";
@@ -218,6 +221,8 @@ export class SceneRuntime {
   private previewAnimationState: AnimationComponent | undefined;
 
   private previewActive = false;
+
+  private previewRevision = 0;
 
   constructor(
     private readonly mount: HTMLElement,
@@ -445,6 +450,89 @@ export class SceneRuntime {
     this.controls.enabled = enabled;
   }
 
+  getLastGroundPointer(): { x: number; y: number; z: number } | null {
+    return this.lastGroundPointer ? { ...this.lastGroundPointer } : null;
+  }
+
+  clearEditorPreview(): void {
+    this.clearPreview();
+  }
+
+  setEditorPlacementPreview(
+    prefab: PrefabSpec | null,
+    position: { x: number; y: number; z: number } | null,
+    scale: number,
+    yawRadians: number,
+  ): void {
+    const revision = this.beginPreview();
+    if (!prefab || !position) {
+      return;
+    }
+
+    const entity = resolveEntity(this.currentWorld ?? { ...emptyWorld(), prefabs: { [prefab.id]: prefab } }, {
+      id: "__editor_preview__",
+      name: prefab.name,
+      prefabId: prefab.id,
+      tags: prefab.tags,
+      transform: {
+        position: makeVec3(position.x, position.y, position.z),
+        rotation: makeVec3(0, yawRadians, 0),
+        scale: makeVec3(scale, scale, scale),
+      },
+      components: prefab.components,
+    });
+
+    const render = entity.components.render as RenderComponent | undefined;
+    if (!render) {
+      return;
+    }
+
+    const root = new THREE.Group();
+    root.position.set(position.x, position.y, position.z);
+    root.rotation.set(0, yawRadians, 0);
+    root.scale.set(scale, scale, scale);
+
+    if (render.type === "model") {
+      this.loadModel(render)
+        .then((asset) => {
+          if (revision !== this.previewRevision) {
+            return;
+          }
+          const modelRoot = this.instantiateModel(asset.scene);
+          this.applyModelRenderTransform(modelRoot, render);
+          this.applyPreviewMaterial(modelRoot);
+          root.add(modelRoot);
+          this.previewGroup.add(root);
+        })
+        .catch(() => {
+          if (revision !== this.previewRevision) {
+            return;
+          }
+          const placeholder = this.buildModelPlaceholder(render);
+          this.applyPreviewMaterial(placeholder);
+          root.add(placeholder);
+          this.previewGroup.add(root);
+        });
+      return;
+    }
+
+    const primitive = this.buildPrimitive(entity, render);
+    this.applyPreviewMaterial(primitive);
+    root.add(primitive);
+    this.previewGroup.add(root);
+  }
+
+  setEditorZonePreview(
+    zone: Pick<ZoneSpec, "kind" | "shape" | "transform"> | null,
+  ): void {
+    this.beginPreview();
+    if (!zone) {
+      return;
+    }
+    const previewObject = this.buildZonePreview(zone);
+    this.previewGroup.add(previewObject);
+  }
+
   setAssetFitPreview(
     prefabId: string | null,
     prefabName: string | null,
@@ -452,7 +540,7 @@ export class SceneRuntime {
     animation?: AnimationComponent,
     physicsShape?: PhysicsShape | null,
   ): void {
-    this.clearPreview();
+    const revision = this.beginPreview();
     this.previewAnimationState = animation;
     if (!prefabId || !prefabName || !render) {
       return;
@@ -479,6 +567,9 @@ export class SceneRuntime {
 
     this.loadModel(render)
       .then((asset) => {
+        if (revision !== this.previewRevision) {
+          return;
+        }
         const modelRoot = this.instantiateModel(asset.scene);
         this.applyModelRenderTransform(modelRoot, render);
         this.previewGroup.add(modelRoot);
@@ -508,6 +599,9 @@ export class SceneRuntime {
         this.previewReport = this.buildPreviewAssetReport(prefabId, prefabName, render);
       })
       .catch((error) => {
+        if (revision !== this.previewRevision) {
+          return;
+        }
         const message = error instanceof Error ? error.message : String(error);
         this.previewReport = {
           entityId: prefabId,
@@ -1073,6 +1167,28 @@ export class SceneRuntime {
       zone.transform.position.y,
       zone.transform.position.z,
     );
+    return object;
+  }
+
+  private buildZonePreview(zone: Pick<ZoneSpec, "kind" | "shape" | "transform">): THREE.Object3D {
+    const color =
+      zone.kind === "safe" ? 0x2e8b57 : zone.kind === "spawn" ? 0xa94442 : 0xb38b2f;
+    if (zone.shape.type === "box") {
+      const object = new THREE.LineSegments(
+        new THREE.EdgesGeometry(
+          new THREE.BoxGeometry(zone.shape.size.x, zone.shape.size.y, zone.shape.size.z),
+        ),
+        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+      );
+      object.position.set(zone.transform.position.x, zone.transform.position.y, zone.transform.position.z);
+      return object;
+    }
+
+    const object = new THREE.LineSegments(
+      new THREE.EdgesGeometry(new THREE.SphereGeometry(zone.shape.radius, 16, 12)),
+      new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9 }),
+    );
+    object.position.set(zone.transform.position.x, zone.transform.position.y, zone.transform.position.z);
     return object;
   }
 
@@ -2002,7 +2118,18 @@ export class SceneRuntime {
     };
   }
 
+  private beginPreview(): number {
+    this.previewRevision += 1;
+    this.clearPreviewState();
+    return this.previewRevision;
+  }
+
   private clearPreview(): void {
+    this.previewRevision += 1;
+    this.clearPreviewState();
+  }
+
+  private clearPreviewState(): void {
     if (this.previewBinding) {
       this.previewBinding.mixer.stopAllAction();
       this.previewBinding = null;
@@ -2010,6 +2137,32 @@ export class SceneRuntime {
     this.previewReport = null;
     this.previewAnimationState = undefined;
     this.clearGroup(this.previewGroup);
+  }
+
+  private applyPreviewMaterial(object: THREE.Object3D): void {
+    object.traverse((node) => {
+      const mesh = node as THREE.Mesh;
+      if (!mesh.isMesh) {
+        return;
+      }
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((material) => {
+          const next = material.clone();
+          next.transparent = true;
+          next.opacity = Math.min(next.opacity ?? 1, 0.45);
+          next.depthWrite = false;
+          return next;
+        });
+        return;
+      }
+      if (mesh.material) {
+        const next = mesh.material.clone();
+        next.transparent = true;
+        next.opacity = Math.min(next.opacity ?? 1, 0.45);
+        next.depthWrite = false;
+        mesh.material = next;
+      }
+    });
   }
 
   private focusPreviewObject(object: THREE.Object3D): void {

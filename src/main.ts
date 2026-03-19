@@ -83,13 +83,6 @@ async function bootstrap(): Promise<void> {
           </div>
         </div>
         <aside class="panel">
-        <section id="workspace-overview" class="overview-card">
-          <div class="overview-head">
-            <h2 class="overview-title">Overview</h2>
-            <span class="overview-subtitle">Current workspace</span>
-          </div>
-          <div id="overview" class="overview-copy"></div>
-        </section>
         <div class="panel-stack">
         <details class="section tool-section" data-pane="project" open>
           <summary class="section-head">
@@ -342,6 +335,19 @@ async function bootstrap(): Promise<void> {
                   <button id="mode-zone" class="secondary">Zone</button>
                 </div>
               </div>
+              <div class="authoring-step">
+                <div class="authoring-step-label">3. Quick controls</div>
+                <div class="controls authoring-tool-controls">
+                  <button id="authoring-rotate-left" class="secondary">Rotate -</button>
+                  <button id="authoring-rotate-right" class="secondary">Rotate +</button>
+                  <button id="authoring-smaller" class="secondary">Smaller</button>
+                  <button id="authoring-bigger" class="secondary">Bigger</button>
+                </div>
+              </div>
+            </div>
+            <div class="authoring-flow-note">
+              Hover shows a translucent preview. Shortcuts: <strong>1-4</strong> tools,
+              <strong>Q/E</strong> rotate, <strong>[ / ]</strong> size, mouse wheel adjusts size.
             </div>
             <div class="generation-grid">
             <label>
@@ -352,19 +358,19 @@ async function bootstrap(): Promise<void> {
               <span>Edit tool</span>
               <input id="authoring-tool" value="place" readonly />
             </label>
-            <label>
+            <label class="authoring-place-field">
               <span>Prefab</span>
               <select id="authoring-prefab"></select>
             </label>
-            <label>
+            <label class="authoring-place-field">
               <span>Place scale</span>
               <input id="authoring-scale" type="number" step="0.1" value="1" />
             </label>
-            <label>
+            <label class="authoring-place-field">
               <span>Place yaw deg</span>
               <input id="authoring-yaw" type="number" step="15" value="0" />
             </label>
-            <label>
+            <label class="authoring-zone-field">
               <span>Zone kind</span>
               <select id="authoring-zone-kind">
                 <option value="spawn">spawn</option>
@@ -375,14 +381,14 @@ async function bootstrap(): Promise<void> {
                 <option value="trigger">trigger</option>
               </select>
             </label>
-            <label>
+            <label class="authoring-zone-field">
               <span>Zone shape</span>
               <select id="authoring-zone-shape">
                 <option value="sphere">sphere</option>
                 <option value="box">box</option>
               </select>
             </label>
-            <label>
+            <label class="authoring-zone-field">
               <span>Zone size</span>
               <input id="authoring-zone-size" type="number" step="1" value="10" />
             </label>
@@ -395,7 +401,7 @@ async function bootstrap(): Promise<void> {
           </div>
           </div>
         </details>
-        <details class="section tool-section" data-pane="world">
+        <details id="inspector-section" class="section tool-section" data-pane="world">
           <summary class="section-head">
             <h2>Stamps</h2>
             <span>Reusable world chunks</span>
@@ -523,9 +529,9 @@ async function bootstrap(): Promise<void> {
             <pre id="sector-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="assets">
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
-            <h2>Assets</h2>
+            <h2>Asset Runtime</h2>
             <span>Validation/runtime</span>
           </summary>
           <div class="section-body">
@@ -550,6 +556,16 @@ async function bootstrap(): Promise<void> {
               <span>Preview anim</span>
               <select id="asset-fit-animation"></select>
             </label>
+            <div class="generation-grid">
+              <label>
+                <span>Bind semantic slot</span>
+                <select id="asset-fit-bind-state"></select>
+              </label>
+              <label>
+                <span>Bind imported clip</span>
+                <select id="asset-fit-bind-clip"></select>
+              </label>
+            </div>
             <label>
               <span>Anim speed</span>
               <input id="asset-fit-anim-speed" type="number" step="0.1" min="0" value="1" />
@@ -617,6 +633,7 @@ async function bootstrap(): Promise<void> {
             </details>
             <div class="controls">
               <button id="asset-fit-preview" type="button">Preview Asset</button>
+              <button id="asset-fit-bind-apply" class="secondary" type="button">Apply Clip Binding</button>
               <button id="asset-fit-apply" type="button">Apply To Prefab</button>
               <button id="asset-fit-reset" class="secondary" type="button">Load Prefab Defaults</button>
             </div>
@@ -624,7 +641,7 @@ async function bootstrap(): Promise<void> {
             <pre id="asset-fit-status"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="world">
+        <details id="selection-section" class="section tool-section" data-pane="world">
           <summary class="section-head">
             <h2>Selection</h2>
             <span>Entity JSON</span>
@@ -633,22 +650,13 @@ async function bootstrap(): Promise<void> {
             <pre id="selection"></pre>
           </div>
         </details>
-        <details class="section tool-section" data-pane="play" open>
+        <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
             <h2>Issues</h2>
             <span>Command/runtime</span>
           </summary>
           <div class="section-body">
             <pre id="issues"></pre>
-          </div>
-        </details>
-        <details class="section tool-section" data-pane="debug">
-          <summary class="section-head">
-            <h2>Iteration</h2>
-            <span>Suggested next actions</span>
-          </summary>
-          <div class="section-body">
-            <div id="iteration-suggestions" class="iteration-suggestions"></div>
           </div>
         </details>
         <details class="section tool-section" data-pane="play">
@@ -678,6 +686,15 @@ async function bootstrap(): Promise<void> {
         </details>
         <details class="section tool-section" data-pane="debug">
           <summary class="section-head">
+            <h2>Iteration</h2>
+            <span>Suggested next actions</span>
+          </summary>
+          <div class="section-body">
+            <div id="iteration-suggestions" class="iteration-suggestions"></div>
+          </div>
+        </details>
+        <details class="section tool-section" data-pane="debug">
+          <summary class="section-head">
             <h2>Events</h2>
             <span>Recent runtime log</span>
           </summary>
@@ -689,6 +706,7 @@ async function bootstrap(): Promise<void> {
       </aside>
         <div id="canvas-root" class="canvas-root" tabindex="0" aria-label="Groundtruth viewport">
           <div id="playtest-hud" class="playtest-hud"></div>
+          <div id="workspace-status" class="workspace-status hidden"></div>
         </div>
         <img id="screenshot-preview" class="screenshot-preview" alt="Latest screenshot" />
       </main>
@@ -721,8 +739,8 @@ async function bootstrap(): Promise<void> {
   const canvasRoot = root.querySelector<HTMLElement>("#canvas-root");
   const assetFitCanvasRoot = root.querySelector<HTMLElement>("#asset-fit-canvas");
   const shell = root.querySelector<HTMLElement>(".shell");
-  const workspaceOverviewCard = root.querySelector<HTMLElement>("#workspace-overview");
-  const overviewNode = root.querySelector<HTMLElement>("#overview");
+  const inspectorSection = root.querySelector<HTMLElement>("#inspector-section");
+  const selectionSection = root.querySelector<HTMLElement>("#selection-section");
   const diagnosticsNode = root.querySelector<HTMLElement>("#diagnostics");
   const evaluationNode = root.querySelector<HTMLElement>("#evaluation");
   const sessionNode = root.querySelector<HTMLElement>("#session");
@@ -738,6 +756,8 @@ async function bootstrap(): Promise<void> {
   const assetStatusNode = root.querySelector<HTMLElement>("#asset-status");
   const assetFitPrefabInput = root.querySelector<HTMLSelectElement>("#asset-fit-prefab");
   const assetFitAnimationInput = root.querySelector<HTMLSelectElement>("#asset-fit-animation");
+  const assetFitBindStateInput = root.querySelector<HTMLSelectElement>("#asset-fit-bind-state");
+  const assetFitBindClipInput = root.querySelector<HTMLSelectElement>("#asset-fit-bind-clip");
   const assetFitAnimSpeedInput = root.querySelector<HTMLInputElement>("#asset-fit-anim-speed");
   const assetFitScaleInput = root.querySelector<HTMLInputElement>("#asset-fit-scale");
   const assetFitYawInput = root.querySelector<HTMLInputElement>("#asset-fit-yaw");
@@ -767,10 +787,11 @@ async function bootstrap(): Promise<void> {
   const docsContentNode = root.querySelector<HTMLElement>("#docs-content");
   const docsAudienceButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-docs-audience]"));
   const paneButtons = Array.from(root.querySelectorAll<HTMLButtonElement>("[data-pane-target]"));
-  const toolSections = Array.from(root.querySelectorAll<HTMLElement>(".tool-section"));
+  const toolSections = Array.from(root.querySelectorAll<HTMLDetailsElement>(".tool-section"));
   const commandScript = root.querySelector<HTMLTextAreaElement>("#command-script");
   const screenshotPreview = root.querySelector<HTMLImageElement>("#screenshot-preview");
   const playtestHud = root.querySelector<HTMLElement>("#playtest-hud");
+  const workspaceStatusNode = root.querySelector<HTMLElement>("#workspace-status");
   const snapshotFileInput = root.querySelector<HTMLInputElement>("#snapshot-file");
   const projectFileInput = root.querySelector<HTMLInputElement>("#project-file");
   const projectNameInput = root.querySelector<HTMLInputElement>("#project-name");
@@ -825,8 +846,8 @@ async function bootstrap(): Promise<void> {
     !canvasRoot ||
     !assetFitCanvasRoot ||
     !shell ||
-    !workspaceOverviewCard ||
-    !overviewNode ||
+    !inspectorSection ||
+    !selectionSection ||
     !diagnosticsNode ||
     !evaluationNode ||
     !sessionNode ||
@@ -842,6 +863,8 @@ async function bootstrap(): Promise<void> {
     !assetStatusNode ||
     !assetFitPrefabInput ||
     !assetFitAnimationInput ||
+    !assetFitBindStateInput ||
+    !assetFitBindClipInput ||
     !assetFitAnimSpeedInput ||
     !assetFitScaleInput ||
     !assetFitYawInput ||
@@ -875,6 +898,7 @@ async function bootstrap(): Promise<void> {
     !commandScript ||
     !screenshotPreview ||
     !playtestHud ||
+    !workspaceStatusNode ||
     !snapshotFileInput ||
     !projectFileInput ||
     !projectNameInput ||
@@ -987,7 +1011,7 @@ async function bootstrap(): Promise<void> {
   const migratedBootProject = bootProject ? migrateProjectPrefabAssetUris(bootProject) : null;
   const autosavedProject = bootConfig.mode === "player" ? null : loadEditorAutosaveProject();
   const migratedAutosavedProject = autosavedProject ? migrateProjectPrefabAssetUris(autosavedProject) : null;
-  const store = new WorldStore(migratedBootProject ?? migratedAutosavedProject ?? makeFlatOutpostWorld());
+  const store = new WorldStore(migratedBootProject  ?? migratedAutosavedProject  ?? makeFlatOutpostWorld());
   let projectSaveHandle: SaveFileHandleLike | null = null;
   let lastSavedProjectSignature: string | null = bootConfig.mode === "player"
     ? null
@@ -1027,7 +1051,7 @@ async function bootstrap(): Promise<void> {
   let hudVisible = true;
   let activeSidebarPane: "project" | "world" | "play" | "assets" | "debug" = "play";
   let activeHelpAudience: HelpAudience = "human";
-  let activeHelpSectionId = helpContentByAudience.human[0]?.id ?? "";
+  let activeHelpSectionId = helpContentByAudience.human[0]?.id  ?? "";
   let pendingWorldRebuild = false;
   let worldSwapState: "idle" | "queued" | "rebuilding" | "loading" | "failed" = "idle";
   let stressCooldownFrames = 0;
@@ -1138,7 +1162,7 @@ async function bootstrap(): Promise<void> {
   });
 
   const getSelectedZone = (world = store.peekWorld()) =>
-    selectedZoneId ? world.zones.find((zone) => zone.id === selectedZoneId) ?? null : null;
+    selectedZoneId ? world.zones.find((zone) => zone.id === selectedZoneId)  ?? null : null;
 
   const selectEntity = (entityId: string | null): void => {
     selectedZoneId = null;
@@ -1177,8 +1201,8 @@ async function bootstrap(): Promise<void> {
       return;
     }
     const resolved = resolveEntity(store.peekWorld(), entity);
-    authoringScaleInput.value = String(resolved.transform.scale?.x ?? 1);
-    authoringYawInput.value = String(((resolved.transform.rotation?.y ?? 0) * 180) / Math.PI);
+    authoringScaleInput.value = String(resolved.transform.scale?.x  ?? 1);
+    authoringYawInput.value = String(((resolved.transform.rotation?.y  ?? 0) * 180) / Math.PI);
   };
 
   const syncSelectedZoneInputs = (force = false): void => {
@@ -1235,15 +1259,15 @@ async function bootstrap(): Promise<void> {
       appendEvent(`Transform apply skipped: missing entity '${selectedEntityId}'.`);
       return;
     }
-    const scale = readNumber(authoringScaleInput.value, entity.transform.scale?.x ?? 1);
-    const yawDegrees = readNumber(authoringYawInput.value, ((entity.transform.rotation?.y ?? 0) * 180) / Math.PI);
+    const scale = readNumber(authoringScaleInput.value, entity.transform.scale?.x  ?? 1);
+    const yawDegrees = readNumber(authoringYawInput.value, ((entity.transform.rotation?.y  ?? 0) * 180) / Math.PI);
     store.updateEntityTransform(
       selectedEntityId,
       {
         rotation: makeVec3(
-          entity.transform.rotation?.x ?? 0,
+          entity.transform.rotation?.x  ?? 0,
           (yawDegrees * Math.PI) / 180,
-          entity.transform.rotation?.z ?? 0,
+          entity.transform.rotation?.z  ?? 0,
         ),
         scale: makeVec3(scale, scale, scale),
       },
@@ -1262,6 +1286,8 @@ async function bootstrap(): Promise<void> {
     const authoringShell = root.querySelector<HTMLElement>(".authoring-shell");
     const transformButton = root.querySelector<HTMLButtonElement>("#apply-selected-transform");
     const deleteButton = root.querySelector<HTMLButtonElement>("#delete-selected");
+    const placeFields = Array.from(root.querySelectorAll<HTMLElement>(".authoring-place-field"));
+    const zoneFields = Array.from(root.querySelectorAll<HTMLElement>(".authoring-zone-field"));
     authoringModeInput.value = interactionMode;
     authoringToolInput.value = interactionMode === "edit" ? editTool : "n/a";
     if (editTool !== "move" && editTool !== "resize") {
@@ -1293,10 +1319,21 @@ async function bootstrap(): Promise<void> {
       button.classList.toggle("active", interactionMode === "edit" && editTool === tool);
     }
     authoringShell?.classList.toggle("edit-active", interactionMode === "edit");
+    const showPlaceFields = interactionMode === "edit" && editTool === "place";
+    const showZoneFields = interactionMode === "edit" && editTool === "zone";
+    for (const field of placeFields) {
+      field.toggleAttribute("hidden", !showPlaceFields);
+    }
+    for (const field of zoneFields) {
+      field.toggleAttribute("hidden", !showZoneFields);
+    }
     transformButton!.disabled = editControlsDisabled;
     deleteButton!.disabled = editControlsDisabled;
     if (interactionMode === "play") {
+      scene.clearEditorPreview();
       requestAnimationFrame(() => canvasRoot.focus());
+    } else {
+      refreshEditorPreview();
     }
   };
 
@@ -1307,17 +1344,17 @@ async function bootstrap(): Promise<void> {
     authoringPrefabInput.innerHTML = prefabIds
       .map((prefabId) => {
         const prefab = world.prefabs[prefabId];
-        const label = prefab?.name ?? prefabId;
+        const label = prefab?.name  ?? prefabId;
         return `<option value="${escapeHtml(prefabId)}">${escapeHtml(label)}</option>`;
       })
       .join("");
-    authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0] ?? "";
+    authoringPrefabInput.value = prefabIds.includes(currentValue) ? currentValue : prefabIds[0]  ?? "";
     const selectedPrefab = world.prefabs[authoringPrefabInput.value];
     authoringPrefabSummaryNode.innerHTML = selectedPrefab
       ? [
         renderOverviewRow("Selected", selectedPrefab.name),
         renderOverviewRow("Id", selectedPrefab.id),
-        renderOverviewRow("Category", selectedPrefab.category ?? "uncategorized"),
+        renderOverviewRow("Category", selectedPrefab.category  ?? "uncategorized"),
         renderOverviewRow("Library", `${prefabIds.length} prefabs below`),
       ].join("")
       : '<div class="inventory-empty">No prefabs available in the current world.</div>';
@@ -1358,7 +1395,7 @@ async function bootstrap(): Promise<void> {
         render: {
           ...render,
           clips: {
-            ...(render.clips ?? {}),
+            ...(render.clips  ?? {}),
             __preview__: clipName,
           },
         },
@@ -1379,16 +1416,16 @@ async function bootstrap(): Promise<void> {
     const prefabIds = listModelPrefabIds();
     const nextValue = prefabIds.includes(assetFitPrefabInput.value)
       ? assetFitPrefabInput.value
-      : prefabIds[0] ?? "";
+      : prefabIds[0]  ?? "";
     assetFitPrefabInput.innerHTML = prefabIds
-      .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(store.peekWorld().prefabs[prefabId]?.name ?? prefabId)}</option>`)
+      .map((prefabId) => `<option value="${escapeHtml(prefabId)}">${escapeHtml(store.peekWorld().prefabs[prefabId]?.name  ?? prefabId)}</option>`)
       .join("");
     assetFitPrefabInput.value = nextValue;
   };
 
   const syncAssetFitInputs = (force = false): void => {
     const assetFitPrefab = getAssetFitPrefab();
-    const prefabId = assetFitPrefab?.prefabId ?? "";
+    const prefabId = assetFitPrefab?.prefabId  ?? "";
     if (!force && prefabId === assetFitBoundPrefabId) {
       return;
     }
@@ -1407,9 +1444,9 @@ async function bootstrap(): Promise<void> {
       assetFitColSzInput.value = "1";
       return;
     }
-    assetFitScaleInput.value = String(assetFitPrefab.render.modelScale?.x ?? 1);
-    assetFitYawInput.value = String(((assetFitPrefab.render.modelRotation?.y ?? 0) * 180) / Math.PI);
-    assetFitOffsetYInput.value = String(assetFitPrefab.render.modelOffset?.y ?? 0);
+    assetFitScaleInput.value = String(assetFitPrefab.render.modelScale?.x  ?? 1);
+    assetFitYawInput.value = String(((assetFitPrefab.render.modelRotation?.y  ?? 0) * 180) / Math.PI);
+    assetFitOffsetYInput.value = String(assetFitPrefab.render.modelOffset?.y  ?? 0);
     assetFitAnimSpeedInput.value = "1";
 
     // Populate collision fields from prefab physics component
@@ -1468,7 +1505,7 @@ async function bootstrap(): Promise<void> {
 
     const semanticStates = Array.from(
       new Set([
-        ...Object.keys(assetFitPrefab.render.clips ?? {}),
+        ...Object.keys(assetFitPrefab.render.clips  ?? {}),
         "idle",
       ]),
     );
@@ -1479,7 +1516,8 @@ async function bootstrap(): Promise<void> {
     assetFitAnimationInput.innerHTML = assetFitAvailableOptions
       .map((option) => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`)
       .join("");
-    assetFitAnimationInput.value = semanticStates.includes("idle") ? "idle" : semanticStates[0] ?? "";
+    assetFitAnimationInput.value = semanticStates.includes("idle") ? "idle" : semanticStates[0]  ?? "";
+    syncAssetFitBindingOptions();
   };
 
   const syncAssetFitAnimationOptions = (): void => {
@@ -1489,7 +1527,43 @@ async function bootstrap(): Promise<void> {
       .join("");
     assetFitAnimationInput.value = assetFitAvailableOptions.some((option) => option.value === selectedValue)
       ? selectedValue
-      : assetFitAvailableOptions[0]?.value ?? "";
+      : assetFitAvailableOptions[0]?.value  ?? "";
+  };
+
+  const syncAssetFitBindingOptions = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      assetFitBindStateInput.innerHTML = "";
+      assetFitBindClipInput.innerHTML = "";
+      return;
+    }
+
+    const semanticStates = Array.from(
+      new Set([
+        "idle",
+        "walk",
+        "run",
+        "attack",
+        "hurt",
+        "death",
+        "rise",
+        ...Object.keys(assetFitPrefab.render.clips  ?? {}),
+      ]),
+    );
+    const selectedState = assetFitBindStateInput.value || semanticStates[0] || "idle";
+    assetFitBindStateInput.innerHTML = semanticStates
+      .map((state) => `<option value="${escapeHtml(state)}">${escapeHtml(state)}</option>`)
+      .join("");
+    assetFitBindStateInput.value = semanticStates.includes(selectedState) ? selectedState : semanticStates[0]  ?? "idle";
+
+    const previewReport = assetFitScene.getAssetFitPreviewReport();
+    const clipNames = previewReport?.availableClipNames  ?? [];
+    const currentBoundClip = assetFitPrefab.render.clips?.[assetFitBindStateInput.value]  ?? "";
+    const selectedClip = assetFitBindClipInput.value || currentBoundClip || clipNames[0] || "";
+    assetFitBindClipInput.innerHTML = clipNames
+      .map((clipName) => `<option value="${escapeHtml(clipName)}">${escapeHtml(clipName)}</option>`)
+      .join("");
+    assetFitBindClipInput.value = clipNames.includes(selectedClip) ? selectedClip : clipNames[0]  ?? "";
   };
 
   const updateAssetFitOptionsFromPreview = (): void => {
@@ -1501,7 +1575,7 @@ async function bootstrap(): Promise<void> {
     }
     const semanticStates = Array.from(
       new Set([
-        ...Object.keys(assetFitPrefab.render.clips ?? {}),
+        ...Object.keys(assetFitPrefab.render.clips  ?? {}),
         "idle",
       ]),
     ).map((state) => ({
@@ -1509,13 +1583,14 @@ async function bootstrap(): Promise<void> {
       label: `state:${state}`,
     }));
     const previewReport = assetFitScene.getAssetFitPreviewReport();
-    const rawClips = (previewReport?.availableClipNames ?? [])
+    const rawClips = (previewReport?.availableClipNames  ?? [])
       .map((clipName) => ({
         value: `raw:${clipName}`,
         label: `clip:${clipName}`,
       }));
     assetFitAvailableOptions = [...semanticStates, ...rawClips];
     syncAssetFitAnimationOptions();
+    syncAssetFitBindingOptions();
   };
 
   const refreshAssetFitPreview = (): void => {
@@ -1526,21 +1601,21 @@ async function bootstrap(): Promise<void> {
       return;
     }
     syncViewportSizes();
-    const nextScale = readNumber(assetFitScaleInput.value, assetFitPrefab.render.modelScale?.x ?? 1);
-    const nextOffsetY = readNumber(assetFitOffsetYInput.value, assetFitPrefab.render.modelOffset?.y ?? 0);
-    const nextYawDegrees = readNumber(assetFitYawInput.value, ((assetFitPrefab.render.modelRotation?.y ?? 0) * 180) / Math.PI);
+    const nextScale = readNumber(assetFitScaleInput.value, assetFitPrefab.render.modelScale?.x  ?? 1);
+    const nextOffsetY = readNumber(assetFitOffsetYInput.value, assetFitPrefab.render.modelOffset?.y  ?? 0);
+    const nextYawDegrees = readNumber(assetFitYawInput.value, ((assetFitPrefab.render.modelRotation?.y  ?? 0) * 180) / Math.PI);
     const adjustedRender: ModelRenderComponent = {
       ...assetFitPrefab.render,
       modelScale: makeVec3(nextScale, nextScale, nextScale),
       modelOffset: makeVec3(
-        assetFitPrefab.render.modelOffset?.x ?? 0,
+        assetFitPrefab.render.modelOffset?.x  ?? 0,
         nextOffsetY,
-        assetFitPrefab.render.modelOffset?.z ?? 0,
+        assetFitPrefab.render.modelOffset?.z  ?? 0,
       ),
       modelRotation: {
-        x: assetFitPrefab.render.modelRotation?.x ?? 0,
+        x: assetFitPrefab.render.modelRotation?.x  ?? 0,
         y: (nextYawDegrees * Math.PI) / 180,
-        z: assetFitPrefab.render.modelRotation?.z ?? 0,
+        z: assetFitPrefab.render.modelRotation?.z  ?? 0,
       },
     };
     const animSpeed = readNumber(assetFitAnimSpeedInput.value, 1);
@@ -1604,7 +1679,7 @@ async function bootstrap(): Promise<void> {
     const shape = buildAssetFitPhysicsShape();
     if (!shape) return undefined;
     const isSensor = !assetFitSolidInput.checked;
-    const existingBody = getAssetFitPrefab()?.prefab.components?.physics?.body ?? "static";
+    const existingBody = getAssetFitPrefab()?.prefab.components?.physics?.body  ?? "static";
     return { body: existingBody, shape: shape as unknown as Record<string, unknown>, ...(isSensor ? { sensor: true } : {}) };
   };
 
@@ -1615,9 +1690,9 @@ async function bootstrap(): Promise<void> {
       return;
     }
     const currentRender = assetFitPrefab.render;
-    const nextScale = readNumber(assetFitScaleInput.value, currentRender.modelScale?.x ?? 1);
-    const nextOffsetY = readNumber(assetFitOffsetYInput.value, currentRender.modelOffset?.y ?? 0);
-    const nextYawDegrees = readNumber(assetFitYawInput.value, ((currentRender.modelRotation?.y ?? 0) * 180) / Math.PI);
+    const nextScale = readNumber(assetFitScaleInput.value, currentRender.modelScale?.x  ?? 1);
+    const nextOffsetY = readNumber(assetFitOffsetYInput.value, currentRender.modelOffset?.y  ?? 0);
+    const nextYawDegrees = readNumber(assetFitYawInput.value, ((currentRender.modelRotation?.y  ?? 0) * 180) / Math.PI);
     const nextPhysics = buildAssetFitPhysicsComponent();
     const updatedComponents: Record<string, unknown> = {
       ...assetFitPrefab.prefab.components,
@@ -1625,14 +1700,14 @@ async function bootstrap(): Promise<void> {
         ...currentRender,
         modelScale: makeVec3(nextScale, nextScale, nextScale),
         modelOffset: makeVec3(
-          currentRender.modelOffset?.x ?? 0,
+          currentRender.modelOffset?.x  ?? 0,
           nextOffsetY,
-          currentRender.modelOffset?.z ?? 0,
+          currentRender.modelOffset?.z  ?? 0,
         ),
         modelRotation: {
-          x: currentRender.modelRotation?.x ?? 0,
+          x: currentRender.modelRotation?.x  ?? 0,
           y: (nextYawDegrees * Math.PI) / 180,
-          z: currentRender.modelRotation?.z ?? 0,
+          z: currentRender.modelRotation?.z  ?? 0,
         },
       },
     };
@@ -1651,6 +1726,43 @@ async function bootstrap(): Promise<void> {
       },
     ]);
     appendEvent(`Applied asset fit to prefab '${assetFitPrefab.prefabId}' (collision: ${assetFitCollisionShapeInput.value}).`);
+  };
+
+  const applyAssetFitClipBinding = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      appendEvent("Asset binding skipped: no model prefab selected.");
+      return;
+    }
+    const state = assetFitBindStateInput.value.trim();
+    const clipName = assetFitBindClipInput.value.trim();
+    if (!state || !clipName) {
+      appendEvent("Asset binding skipped: choose both a semantic slot and an imported clip.");
+      return;
+    }
+
+    const currentRender = assetFitPrefab.render;
+    store.apply([
+      {
+        op: "upsert_prefab",
+        prefab: {
+          ...assetFitPrefab.prefab,
+          components: {
+            ...assetFitPrefab.prefab.components,
+            render: {
+              ...currentRender,
+              clips: {
+                ...(currentRender.clips  ?? {}),
+                [state]: clipName,
+              },
+            },
+          },
+        },
+      },
+    ]);
+    appendEvent(`Bound '${state}' to clip '${clipName}' for '${assetFitPrefab.prefabId}'.`);
+    syncAssetFitInputs(true);
+    refreshAssetFitPreview();
   };
 
   const syncGameModeTemplate = (): void => {
@@ -1672,8 +1784,8 @@ async function bootstrap(): Promise<void> {
     const preferredValue = projectTemplates.some((template) => template.id === selectedValue)
       ? selectedValue
       : projectTemplates.some((template) => template.id === projectTemplateId)
-        ? projectTemplateId ?? ""
-        : projectTemplates[0]?.id ?? "";
+        ? projectTemplateId  ?? ""
+        : projectTemplates[0]?.id  ?? "";
     projectTemplateInput.innerHTML = projectTemplates
       .map((template) => `<option value="${template.id}">${escapeHtml(template.label)}</option>`)
       .join("");
@@ -1693,9 +1805,9 @@ async function bootstrap(): Promise<void> {
     if (!worlds.some((world) => world.metadata.id === projectWorldInput.value)) {
       projectWorldInput.value = project.currentWorldId;
     }
-    const selectedWorld = project.worlds[projectWorldInput.value] ?? project.worlds[project.currentWorldId];
+    const selectedWorld = project.worlds[projectWorldInput.value]  ?? project.worlds[project.currentWorldId];
     projectWorldSummaryNode.textContent = selectedWorld
-      ? `${Object.keys(project.worlds).length} world variants. Active variant: ${project.worlds[project.currentWorldId]?.metadata.name ?? selectedWorld.metadata.name}. Selected mode: ${selectedWorld.gameMode.replaceAll("_", " ")}.`
+      ? `${Object.keys(project.worlds).length} world variants. Active variant: ${project.worlds[project.currentWorldId]?.metadata.name  ?? selectedWorld.metadata.name}. Selected mode: ${selectedWorld.gameMode.replaceAll("_", " ")}.`
       : "No world variants available.";
   };
 
@@ -1704,10 +1816,10 @@ async function bootstrap(): Promise<void> {
       .map((stamp) => `<option value="${stamp.id}">${escapeHtml(stamp.label)}</option>`)
       .join("");
     if (!worldStamps.some((stamp) => stamp.id === worldStampInput.value)) {
-      worldStampInput.value = worldStamps[0]?.id ?? "";
+      worldStampInput.value = worldStamps[0]?.id  ?? "";
     }
     const stamp = worldStamps.find((item) => item.id === worldStampInput.value);
-    worldStampSummaryNode.textContent = stamp?.summary ?? "No world stamp selected.";
+    worldStampSummaryNode.textContent = stamp?.summary  ?? "No world stamp selected.";
   };
 
   const syncWorldRecipes = (): void => {
@@ -1715,10 +1827,10 @@ async function bootstrap(): Promise<void> {
       .map((recipe) => `<option value="${recipe.id}">${escapeHtml(recipe.label)}</option>`)
       .join("");
     if (!worldRecipes.some((recipe) => recipe.id === worldRecipeInput.value)) {
-      worldRecipeInput.value = worldRecipes[0]?.id ?? "";
+      worldRecipeInput.value = worldRecipes[0]?.id  ?? "";
     }
     const recipe = getWorldRecipe(worldRecipeInput.value);
-    worldRecipeSummaryNode.textContent = recipe?.summary ?? "No world recipe selected.";
+    worldRecipeSummaryNode.textContent = recipe?.summary  ?? "No world recipe selected.";
   };
 
   const syncFeatureToggles = (): void => {
@@ -1730,7 +1842,7 @@ async function bootstrap(): Promise<void> {
     const featureOverrides = store.peekProject().runtime.featureOverrides;
     featureTogglesNode.innerHTML = preset.featureIds
       .map((featureId) => {
-        const enabled = featureOverrides[featureId]?.enabled ?? true;
+        const enabled = featureOverrides[featureId]?.enabled  ?? true;
         return `
           <label class="toggle feature-toggle-row">
             <input type="checkbox" data-feature-toggle="${escapeHtml(featureId)}" ${enabled ? "checked" : ""} />
@@ -1756,7 +1868,7 @@ async function bootstrap(): Promise<void> {
     policyLootTransferInput.value = policy.loot.transferMode;
     policyEmptyContainerInput.value = policy.loot.emptyContainerMode;
     policyRespawnModeInput.value = policy.respawn.mode;
-    policyRespawnKeyInput.value = policy.respawn.key ?? policy.controls.respawnKey ?? "";
+    policyRespawnKeyInput.value = policy.respawn.key  ?? policy.controls.respawnKey  ?? "";
     policyAggroScaleInput.value = policy.hostile.aggroRadiusScale.toFixed(2);
     policyLeashScaleInput.value = policy.hostile.leashRadiusScale.toFixed(2);
   };
@@ -1827,7 +1939,7 @@ async function bootstrap(): Promise<void> {
       return;
     }
     const placementScale = readNumber(authoringScaleInput.value, 1);
-    const placementHeight = (prefab.placement?.defaultHeight ?? inferPlacementHeight(prefabId)) * placementScale;
+    const placementHeight = (prefab.placement?.defaultHeight  ?? inferPlacementHeight(prefabId)) * placementScale;
 
     const entityId = `${prefabId}.placed.${placedEntityCounter++}`;
     store.apply([
@@ -2002,8 +2114,74 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Placed ${authoringZoneKindInput.value} zone at (${x.toFixed(1)}, ${z.toFixed(1)}).`);
   };
 
+  const getAuthoringPlacement = (prefabId = authoringPrefabInput.value): {
+    prefab: WorldDocument["prefabs"][string] | null;
+    scale: number;
+    yawRadians: number;
+    height: number;
+  } => {
+    const prefab = store.peekWorld().prefabs[prefabId]  ?? null;
+    const scale = Math.max(0.1, readNumber(authoringScaleInput.value, 1));
+    const yawRadians = (readNumber(authoringYawInput.value, 0) * Math.PI) / 180;
+    const height = prefab
+      ? (prefab.placement?.defaultHeight  ?? inferPlacementHeight(prefabId)) * scale
+      : 0;
+    return { prefab, scale, yawRadians, height };
+  };
+
+  const refreshEditorPreview = (point = scene.getLastGroundPointer()): void => {
+    if (interactionMode !== "edit" || !point) {
+      scene.clearEditorPreview();
+      return;
+    }
+
+    if (editTool === "place") {
+      const placement = getAuthoringPlacement();
+      scene.setEditorPlacementPreview(
+        placement.prefab,
+        placement.prefab ? { x: point.x, y: placement.height, z: point.z } : null,
+        placement.scale,
+        placement.yawRadians,
+      );
+      return;
+    }
+
+    if (editTool === "zone") {
+      const size = Math.max(1, readNumber(authoringZoneSizeInput.value, 10));
+      scene.setEditorZonePreview({
+        kind: authoringZoneKindInput.value as ZoneSpec["kind"],
+        shape: authoringZoneShapeInput.value === "sphere"
+          ? { type: "sphere", radius: size }
+          : { type: "box", size: makeVec3(size, 2, size) },
+        transform: { position: makeVec3(point.x, 1, point.z) },
+      });
+      return;
+    }
+
+    scene.clearEditorPreview();
+  };
+
+  const nudgeAuthoringYaw = (deltaDegrees: number): void => {
+    const next = readNumber(authoringYawInput.value, 0) + deltaDegrees;
+    authoringYawInput.value = String(next);
+    refreshEditorPreview();
+  };
+
+  const nudgeAuthoringScale = (delta: number): void => {
+    if (editTool === "zone") {
+      const next = Math.max(1, readNumber(authoringZoneSizeInput.value, 10) + delta);
+      authoringZoneSizeInput.value = String(next);
+      refreshEditorPreview();
+      return;
+    }
+    const next = Math.max(0.1, readNumber(authoringScaleInput.value, 1) + delta);
+    authoringScaleInput.value = next.toFixed(2);
+    refreshEditorPreview();
+  };
+
   const handleCanvasAuthoring = (event: PointerEvent): void => {
     if (interactionMode === "play") {
+      scene.clearEditorPreview();
       canvasRoot.focus();
       return;
     }
@@ -2017,6 +2195,7 @@ async function bootstrap(): Promise<void> {
     }
     if (editTool === "place") {
       placePrefabAt(authoringPrefabInput.value, groundPick.point.x, groundPick.point.z);
+      refreshEditorPreview(groundPick.point);
       return;
     }
     if (editTool === "move") {
@@ -2033,13 +2212,18 @@ async function bootstrap(): Promise<void> {
     }
     if (editTool === "zone") {
       placeZoneAt(groundPick.point.x, groundPick.point.z);
+      refreshEditorPreview(groundPick.point);
     }
   };
 
   const handleCanvasAuthoringMove = (event: PointerEvent): void => {
     const groundPick = scene.screenPointToGround(event.clientX, event.clientY);
     if (!groundPick) {
+      scene.clearEditorPreview();
       return;
+    }
+    if (!moveDragActive && !resizeDragActive) {
+      refreshEditorPreview(groundPick.point);
     }
     if (moveDragActive && editTool === "move") {
       moveSelectedEntityTo(groundPick.point.x, groundPick.point.z);
@@ -2057,6 +2241,7 @@ async function bootstrap(): Promise<void> {
     moveDragActive = false;
     resizeDragActive = false;
     scene.setOrbitEnabled(true);
+    refreshEditorPreview();
   };
 
   commandScript.value = exampleCommandScript;
@@ -2077,14 +2262,14 @@ async function bootstrap(): Promise<void> {
       moduleDescriptors.find((descriptor) => descriptor.id === world.gameMode) ??
       moduleDescriptors.find((descriptor) => descriptor.id === "third_person_survival");
     const implementedModuleCount = moduleDescriptors.filter((descriptor) => descriptor.implemented).length;
-    const runtimeFindings = runtimeModule.getDebugFindings?.() ?? [];
-    const worldDebugLines = runtimeModule.getWorldDebug?.(world) ?? [];
-    const sectorOverlay = runtimeModule.getSectorOverlay?.() ?? null;
-    const moduleEvents = runtimeModule.getRecentEvents?.() ?? [];
+    const runtimeFindings = runtimeModule.getDebugFindings?.()  ?? [];
+    const worldDebugLines = runtimeModule.getWorldDebug?.(world)  ?? [];
+    const sectorOverlay = runtimeModule.getSectorOverlay?.()  ?? null;
+    const moduleEvents = runtimeModule.getRecentEvents?.()  ?? [];
     const selectedEntityId = store.getSelectedEntityId();
     const selectedZone = getSelectedZone(world);
     const selectedRuntimeDebug = selectedEntityId
-      ? runtimeModule.getEntityDebug?.(world, selectedEntityId) ?? []
+      ? runtimeModule.getEntityDebug?.(world, selectedEntityId)  ?? []
       : [];
     const selectedVisualDebug = selectedEntityId
       ? scene.getEntityVisualDebug(selectedEntityId)
@@ -2092,7 +2277,7 @@ async function bootstrap(): Promise<void> {
     const selectedPhysicsDebug = selectedEntityId
       ? physics.getEntityDebug(selectedEntityId)
       : [];
-    const playerRuntimeDebug = runtimeModule.getEntityDebug?.(world, "player") ?? [];
+    const playerRuntimeDebug = runtimeModule.getEntityDebug?.(world, "player")  ?? [];
     const playerVisualDebug = scene.getEntityVisualDebug("player");
     const playerPhysicsDebug = physics.getEntityDebug("player");
     const assetReports = scene.getAssetReports();
@@ -2117,8 +2302,12 @@ async function bootstrap(): Promise<void> {
       ? resolvePresetGameplayPolicy(actionPreset, store.peekProject())
       : null;
     const projectDirty = isProjectDirty();
-    const projectSaveTarget = lastSavedTarget ?? "Not saved to a file yet";
+    const projectSaveTarget = lastSavedTarget  ?? "Not saved to a file yet";
     const projectSaveLabel = projectDirty ? "Unsaved changes" : "Saved";
+    const projectPaneButton = paneButtons.find((button) => button.dataset.paneTarget === "project");
+    if (projectPaneButton) {
+      projectPaneButton.textContent = projectDirty ? "Project*" : "Project";
+    }
 
     if (document.activeElement !== projectNameInput) {
       projectNameInput.value = world.metadata.name;
@@ -2132,18 +2321,11 @@ async function bootstrap(): Promise<void> {
     evaluationNode.textContent = formatEvaluation(evaluation.findings);
     sessionNode.textContent = [
       ...(assetLoadingLine ? [assetLoadingLine] : []),
-      ...(runtimeModule.getStatusLines?.() ?? ["No session state."]),
+      ...(runtimeModule.getStatusLines?.()  ?? ["No session state."]),
     ].join("\n");
     sectorStatusNode.textContent = worldDebugLines.join("\n") || "No sector debug available.";
     scene.setSectorOverlay(sectorOverlay);
-    overviewNode.innerHTML = [
-      renderOverviewRow("Project", store.peekProject().metadata.name),
-      renderOverviewRow("World", world.metadata.name),
-      renderOverviewRow("Mode", currentModuleDescriptor?.label ?? runtimeModule.id),
-      renderOverviewRow("Entities", `${world.entities.length} entities / ${world.zones.length} zones`),
-      renderOverviewRow("Selection", selectedEntityId ?? selectedZone?.id ?? "none"),
-    ].join("");
-    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nGameplay policy: ${activeGameplayPolicy ? JSON.stringify(activeGameplayPolicy, null, 2) : "n/a"}\nInteraction mode: ${interactionMode}\nEdit tool: ${editTool}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id ?? "none"}`;
+    sessionNode.textContent += `\nModule label: ${currentModuleDescriptor?.label  ?? runtimeModule.id}\nModule implemented: ${currentModuleDescriptor?.implemented ? "yes" : "sandbox fallback"}\nKnown modules: ${implementedModuleCount}/${moduleDescriptors.length}\nGameplay policy: ${activeGameplayPolicy ? JSON.stringify(activeGameplayPolicy, null, 2) : "n/a"}\nInteraction mode: ${interactionMode}\nEdit tool: ${editTool}\nMove drag: ${moveDragActive}\nResize drag: ${resizeDragActive}\nAuthoring prefab: ${authoringPrefabInput.value}\nAuthoring scale: ${authoringScaleInput.value}\nAuthoring yaw: ${authoringYawInput.value}\nZone kind: ${authoringZoneKindInput.value}\nZone shape: ${authoringZoneShapeInput.value}\nZone size: ${authoringZoneSizeInput.value}\nScene filter: ${sceneFilterInput.value}\nScene search: ${sceneSearchInput.value}\nSelected zone: ${selectedZone?.id  ?? "none"}`;
     inspectorNode.textContent = formatInspector(
       selectedEntityId,
       selectedZone,
@@ -2151,10 +2333,12 @@ async function bootstrap(): Promise<void> {
       selectedVisualDebug,
       selectedPhysicsDebug,
     );
+    const hasSelection = Boolean(selectedEntityId || selectedZone);
+    inspectorSection.toggleAttribute("hidden", !hasSelection || activeSidebarPane !== "world");
     sceneInventoryNode.innerHTML = renderSceneInventory(
       world,
       selectedEntityId,
-      selectedZone?.id ?? null,
+      selectedZone?.id  ?? null,
       sceneSearchInput.value,
       sceneFilterInput.value,
     );
@@ -2189,7 +2373,7 @@ async function bootstrap(): Promise<void> {
     playtestHud.innerHTML = renderHud(
       [
         ...(assetLoadingLine ? [assetLoadingLine] : []),
-        ...(runtimeModule.getStatusLines?.() ?? []),
+        ...(runtimeModule.getStatusLines?.()  ?? []),
       ],
       runtimeFindings,
       evaluation.findings.map((finding) => `[${finding.severity}] ${finding.message}`),
@@ -2203,13 +2387,14 @@ async function bootstrap(): Promise<void> {
     selectionNode.textContent = selectedZone
       ? JSON.stringify(selectedZone, null, 2)
       : store.getSelectedEntityJson();
+    selectionSection.toggleAttribute("hidden", !hasSelection || activeSidebarPane !== "world");
     eventLogNode.textContent = [...moduleEvents, ...runtimeEvents].slice(0, 40).join("\n") || "No runtime events yet.";
     issuesNode.textContent =
       [
         ...runtimeFindings,
         ...assetFindings,
         ...evaluation.findings.map((finding) => `[${finding.severity}] ${finding.message}`),
-        ...(playtestEvaluation?.findings.map((finding) => `[playtest:${finding.severity}] ${finding.message}`) ?? []),
+        ...(playtestEvaluation?.findings.map((finding) => `[playtest:${finding.severity}] ${finding.message}`)  ?? []),
         ...store.getCommandIssues(),
       ].join("\n") ||
       store.getCommandIssues().join("\n") ||
@@ -2229,7 +2414,24 @@ async function bootstrap(): Promise<void> {
       `World ${worldSwapState}`,
       `${assetStatus}${assetSuffix}`,
       `${evaluation.counts.error} errors / ${evaluation.counts.warn} warnings`,
-    ].join(" · ");
+    ].join(" | ");
+    const workspaceStatus = activeSidebarPane === "world"
+      ? interactionMode === "edit"
+        ? editTool === "place"
+          ? `Map | Edit | Place ${authoringPrefabInput.value} | scale ${readNumber(authoringScaleInput.value, 1).toFixed(2)} | yaw ${readNumber(authoringYawInput.value, 0).toFixed(0)} deg`
+          : editTool === "zone"
+            ? `Map | Edit | Zone ${authoringZoneKindInput.value} | ${authoringZoneShapeInput.value} | size ${readNumber(authoringZoneSizeInput.value, 10).toFixed(0)}`
+            : `Map | Edit | ${editTool}`
+        : "Map | Play mode"
+      : activeSidebarPane === "assets"
+        ? `Assets | ${assetFitPrefabInput.value || "no prefab"} | preview ${assetFitAnimationInput.value || "idle"}`
+        : activeSidebarPane === "project"
+          ? projectDirty ? "Project | unsaved changes" : "Project | saved"
+          : activeSidebarPane === "debug"
+            ? "Debug workspace"
+            : "";
+    workspaceStatusNode.textContent = workspaceStatus;
+    workspaceStatusNode.classList.toggle("hidden", workspaceStatus.length === 0 || activeSidebarPane === "play");
     playtestStatusNode.textContent = formatPlaytestStatus(
       playtestSession,
       runtimeEvents,
@@ -2356,7 +2558,7 @@ async function bootstrap(): Promise<void> {
     };
 
     if (pickerWindow.showSaveFilePicker) {
-      const handle = projectSaveHandle ?? await pickerWindow.showSaveFilePicker({
+      const handle = projectSaveHandle  ?? await pickerWindow.showSaveFilePicker({
         suggestedName,
         types: [
           {
@@ -2371,8 +2573,8 @@ async function bootstrap(): Promise<void> {
       await writable.write(JSON.stringify(project, null, 2));
       await writable.close();
       projectSaveHandle = handle;
-      markProjectSaved(handle.name ?? suggestedName);
-      appendEvent(`Saved working project '${project.metadata.name}' to '${handle.name ?? suggestedName}'.`);
+      markProjectSaved(handle.name  ?? suggestedName);
+      appendEvent(`Saved working project '${project.metadata.name}' to '${handle.name  ?? suggestedName}'.`);
       return;
     }
 
@@ -2473,9 +2675,9 @@ async function bootstrap(): Promise<void> {
       playtestEvaluation,
     };
     store.setLastPlaytestReport({
-      label: playtestSession?.label ?? "Playtest Session",
+      label: playtestSession?.label  ?? "Playtest Session",
       capturedAt: report.capturedAt,
-      noteCount: playtestSession?.notes.length ?? 0,
+      noteCount: playtestSession?.notes.length  ?? 0,
       deathEvents: playtestSummary.deathEvents,
       lootEvents: playtestSummary.lootEvents,
       playerHitEvents: playtestSummary.playerHitEvents,
@@ -2633,7 +2835,7 @@ async function bootstrap(): Promise<void> {
       refreshSidebar();
       return;
     }
-    appendEvent(`Store event: selection -> ${store.getSelectedEntityId() ?? selectedZoneId ?? "none"}`);
+    appendEvent(`Store event: selection -> ${store.getSelectedEntityId()  ?? selectedZoneId  ?? "none"}`);
     syncSelectedTransformInputs();
     syncSelectedZoneInputs();
     refreshSidebar();
@@ -2661,14 +2863,27 @@ async function bootstrap(): Promise<void> {
   };
 
   const syncSidebarPane = (): void => {
+    const preferredOpenTitlesByPane: Record<string, string[]> = {
+      play: ["Play View", "Playtest"],
+      world: ["Authoring", "Scene"],
+      assets: ["Asset Fit"],
+      project: ["Project", "Gameplay Policy"],
+      debug: ["Issues", "Diagnostics"],
+    };
     for (const button of paneButtons) {
       const isActive = button.dataset.paneTarget === activeSidebarPane;
       button.classList.toggle("active", isActive);
       button.setAttribute("aria-pressed", String(isActive));
     }
-    workspaceOverviewCard.toggleAttribute("hidden", activeSidebarPane !== "project" && activeSidebarPane !== "debug");
     for (const section of toolSections) {
-      section.toggleAttribute("hidden", section.dataset.pane !== activeSidebarPane);
+      const isActivePane = section.dataset.pane === activeSidebarPane;
+      section.toggleAttribute("hidden", !isActivePane);
+      if (!isActivePane) {
+        continue;
+      }
+      const title = section.querySelector("h2")?.textContent?.trim() ?? "";
+      const preferred = preferredOpenTitlesByPane[activeSidebarPane] ?? [];
+      section.open = preferred.includes(title);
     }
     syncViewportSizes();
   };
@@ -2694,7 +2909,7 @@ async function bootstrap(): Promise<void> {
       </button>
     `).join("");
 
-    const activeSection = activeSections.find((section) => section.id === activeHelpSectionId) ?? activeSections[0];
+    const activeSection = activeSections.find((section) => section.id === activeHelpSectionId)  ?? activeSections[0];
     if (!activeSection) {
       docsContentNode.innerHTML = "<p>No tutorial content available.</p>";
       return;
@@ -2754,12 +2969,71 @@ async function bootstrap(): Promise<void> {
   });
 
   window.addEventListener("keydown", (event) => {
+    const target = event.target as HTMLElement | null;
+    const editingField = target
+      ? target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target.isContentEditable
+      : false;
     if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s" && bootConfig.mode !== "player") {
       event.preventDefault();
       void saveProjectToWorkingFile().then(refreshSidebar).catch((error) => {
         issuesNode.textContent = error instanceof Error ? error.message : String(error);
       });
       return;
+    }
+    if (!editingField && interactionMode === "edit") {
+      if (event.key === "1") {
+        interactionMode = "edit";
+        editTool = "place";
+        syncAuthoringMode();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "2") {
+        interactionMode = "edit";
+        editTool = "move";
+        syncAuthoringMode();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "3") {
+        interactionMode = "edit";
+        editTool = "resize";
+        syncAuthoringMode();
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "4") {
+        interactionMode = "edit";
+        editTool = "zone";
+        syncAuthoringMode();
+        event.preventDefault();
+        return;
+      }
+      if (event.key.toLowerCase() === "q") {
+        nudgeAuthoringYaw(-15);
+        event.preventDefault();
+        return;
+      }
+      if (event.key.toLowerCase() === "e") {
+        nudgeAuthoringYaw(15);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "[") {
+        nudgeAuthoringScale(editTool === "zone" ? -1 : -0.1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "]") {
+        nudgeAuthoringScale(editTool === "zone" ? 1 : 0.1);
+        event.preventDefault();
+        return;
+      }
+      if (event.key === "Delete") {
+        deleteSelectedEntity();
+        event.preventDefault();
+        return;
+      }
     }
     if (shouldCaptureGameplayKey(event, interactionMode, docsModal, canvasRoot)) {
       event.preventDefault();
@@ -2776,6 +3050,18 @@ async function bootstrap(): Promise<void> {
     // Intentionally not preventing unload — the popup was disruptive during development.
     // Project state is saved explicitly via Save Project.
   });
+
+  canvasRoot.addEventListener("wheel", (event) => {
+    if (interactionMode !== "edit") {
+      return;
+    }
+    if (editTool !== "place" && editTool !== "zone") {
+      return;
+    }
+    event.preventDefault();
+    const delta = event.deltaY > 0 ? -1 : 1;
+    nudgeAuthoringScale(editTool === "zone" ? delta : delta * 0.1);
+  }, { passive: false });
 
   docsNavNode.addEventListener("click", (event) => {
     const target = event.target;
@@ -2801,7 +3087,7 @@ async function bootstrap(): Promise<void> {
         return;
       }
       activeHelpAudience = audience;
-      activeHelpSectionId = helpContentByAudience[audience][0]?.id ?? "";
+      activeHelpSectionId = helpContentByAudience[audience][0]?.id  ?? "";
       syncDocs();
     });
   }
@@ -2857,6 +3143,22 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Edit tool set to zone '${authoringZoneKindInput.value}'.`);
   });
 
+  root.querySelector<HTMLButtonElement>("#authoring-rotate-left")?.addEventListener("click", () => {
+    nudgeAuthoringYaw(-15);
+  });
+
+  root.querySelector<HTMLButtonElement>("#authoring-rotate-right")?.addEventListener("click", () => {
+    nudgeAuthoringYaw(15);
+  });
+
+  root.querySelector<HTMLButtonElement>("#authoring-smaller")?.addEventListener("click", () => {
+    nudgeAuthoringScale(editTool === "zone" ? -1 : -0.1);
+  });
+
+  root.querySelector<HTMLButtonElement>("#authoring-bigger")?.addEventListener("click", () => {
+    nudgeAuthoringScale(editTool === "zone" ? 1 : 0.1);
+  });
+
   root.querySelector<HTMLButtonElement>("#apply-selected-transform")?.addEventListener("click", () => {
     applySelectedEntityTransform();
   });
@@ -2903,8 +3205,19 @@ async function bootstrap(): Promise<void> {
     authoringPrefabInput.value = prefabId;
     syncAuthoringPrefabs();
     appendEvent(`Authoring palette selected prefab '${prefabId}'.`);
+    refreshEditorPreview();
     refreshSidebar();
   });
+
+  authoringPrefabInput.addEventListener("change", () => {
+    syncAuthoringPrefabs();
+    refreshEditorPreview();
+  });
+  authoringScaleInput.addEventListener("input", () => refreshEditorPreview());
+  authoringYawInput.addEventListener("input", () => refreshEditorPreview());
+  authoringZoneKindInput.addEventListener("change", () => refreshEditorPreview());
+  authoringZoneShapeInput.addEventListener("change", () => refreshEditorPreview());
+  authoringZoneSizeInput.addEventListener("input", () => refreshEditorPreview());
 
   featureTogglesNode.addEventListener("change", (event) => {
     const target = event.target;
@@ -2964,7 +3277,10 @@ async function bootstrap(): Promise<void> {
   canvasRoot.addEventListener("pointerdown", handleCanvasAuthoring);
   canvasRoot.addEventListener("pointermove", handleCanvasAuthoringMove);
   canvasRoot.addEventListener("pointerup", stopAuthoringDrag);
-  canvasRoot.addEventListener("pointerleave", stopAuthoringDrag);
+  canvasRoot.addEventListener("pointerleave", () => {
+    stopAuthoringDrag();
+    scene.clearEditorPreview();
+  });
 
   root.querySelector<HTMLButtonElement>("#load-generated")?.addEventListener("click", () => {
     buildGeneratedWorld();
@@ -3119,6 +3435,10 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Previewing asset fit for '${assetFitPrefabInput.value}'.`);
   });
 
+  root.querySelector<HTMLButtonElement>("#asset-fit-bind-apply")?.addEventListener("click", () => {
+    applyAssetFitClipBinding();
+  });
+
   root.querySelector<HTMLButtonElement>("#asset-fit-apply")?.addEventListener("click", () => {
     applyAssetFitToPrefab();
   });
@@ -3150,6 +3470,8 @@ async function bootstrap(): Promise<void> {
     syncAssetFitInputs(true);
     refreshAssetFitPreview();
   });
+
+  assetFitBindStateInput.addEventListener("change", syncAssetFitBindingOptions);
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
     try {
@@ -3415,9 +3737,9 @@ function readBootConfig(): GroundtruthBootConfig {
   return {
     mode: search.get("mode") === "player"
       ? "player"
-      : bootWindow.__GROUNDTRUTH_BOOT__?.mode ?? "editor",
+      : bootWindow.__GROUNDTRUTH_BOOT__?.mode  ?? "editor",
     manifest: search.get("manifest")
-      ?? bootWindow.__GROUNDTRUTH_BOOT__?.manifest,
+       ?? bootWindow.__GROUNDTRUTH_BOOT__?.manifest,
   };
 }
 
@@ -3754,7 +4076,7 @@ function nudgeEntitiesOutOfCenter(
 }
 
 function isHostileEntity(entity: WorldDocument["entities"][number]): boolean {
-  return (entity.tags ?? []).includes("enemy") || entity.prefabId === "zombie_basic";
+  return (entity.tags  ?? []).includes("enemy") || entity.prefabId === "zombie_basic";
 }
 
 function isLootEntity(
@@ -3762,7 +4084,7 @@ function isLootEntity(
   entity: WorldDocument["entities"][number],
 ): boolean {
   const category = entity.prefabId ? world.prefabs[entity.prefabId]?.category : undefined;
-  return category === "loot" || entity.prefabId === "loot_crate" || (entity.tags ?? []).includes("loot");
+  return category === "loot" || entity.prefabId === "loot_crate" || (entity.tags  ?? []).includes("loot");
 }
 
 function isBuildingEntity(
@@ -3902,7 +4224,7 @@ function renderIterationSuggestions(suggestions: IterationSuggestion[]): string 
           <div class="iteration-title">${escapeHtml(suggestion.title)}</div>
           <div class="iteration-summary">${escapeHtml(suggestion.summary)}</div>
           <div class="iteration-meta">
-            <span>Applied ${suggestion.appliedCount ?? 0} time${(suggestion.appliedCount ?? 0) === 1 ? "" : "s"}</span>
+            <span>Applied ${suggestion.appliedCount  ?? 0} time${(suggestion.appliedCount  ?? 0) === 1 ? "" : "s"}</span>
             ${suggestion.appliedRecently ? '<span class="iteration-badge">Recently applied</span>' : ""}
           </div>
         </div>
@@ -3972,7 +4294,7 @@ function formatPlaytestStatus(
   return [
     `Label: ${session.label}`,
     `Started: ${session.startedAt}`,
-    `Ended: ${session.endedAt ?? "active"}`,
+    `Ended: ${session.endedAt  ?? "active"}`,
     `Notes: ${session.notes.length}`,
     `Deaths seen: ${summary.deathEvents}`,
     `Loot events: ${summary.lootEvents}`,
@@ -4095,7 +4417,7 @@ function formatInspector(
       `Kind: ${zone.kind}`,
       `Shape: ${shapeSummary}`,
       `Position: ${zone.transform.position.x.toFixed(2)}, ${zone.transform.position.y.toFixed(2)}, ${zone.transform.position.z.toFixed(2)}`,
-      `Tags: ${(zone.tags ?? []).join(", ") || "none"}`,
+      `Tags: ${(zone.tags  ?? []).join(", ") || "none"}`,
     ].join("\n");
   }
 
@@ -4139,7 +4461,7 @@ function renderSceneInventory(
     .slice()
     .filter((entity) =>
       entityMatchesFilter(entity) &&
-      matchesQuery(`${entity.id} ${entity.name} ${entity.prefabId ?? ""} ${(entity.tags ?? []).join(" ")}`))
+      matchesQuery(`${entity.id} ${entity.name} ${entity.prefabId  ?? ""} ${(entity.tags  ?? []).join(" ")}`))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((entity) => {
       const isSelected = entity.id === selectedEntityId;
@@ -4159,7 +4481,7 @@ function renderSceneInventory(
 
   const zoneItems = world.zones
     .slice()
-    .filter((zone) => zoneMatchesFilter(zone) && matchesQuery(`${zone.id} ${zone.name} ${zone.kind} ${(zone.tags ?? []).join(" ")}`))
+    .filter((zone) => zoneMatchesFilter(zone) && matchesQuery(`${zone.id} ${zone.name} ${zone.kind} ${(zone.tags  ?? []).join(" ")}`))
     .sort((left, right) => left.name.localeCompare(right.name))
     .map((zone) => {
       const isSelected = zone.id === selectedZoneId;
@@ -4205,7 +4527,7 @@ function renderPrefabPalette(
   const groups = new Map<string, string[]>();
   for (const prefabId of Object.keys(world.prefabs).sort()) {
     const group = categorizePrefab(world.prefabs[prefabId]?.category, prefabId);
-    const bucket = groups.get(group) ?? [];
+    const bucket = groups.get(group)  ?? [];
     bucket.push(prefabId);
     groups.set(group, bucket);
   }
@@ -4222,7 +4544,7 @@ function renderPrefabPalette(
                 class="palette-chip${prefabId === selectedPrefabId ? " selected" : ""}"
                 data-palette-prefab="${escapeHtml(prefabId)}"
               >
-                ${escapeHtml(world.prefabs[prefabId]?.name ?? prefabId)}
+                ${escapeHtml(world.prefabs[prefabId]?.name  ?? prefabId)}
               </button>
             `)
             .join("")}

@@ -15,7 +15,7 @@ export const humanHelpSections: HelpSection[] = [
     title: "Getting Started",
     summary: "How to get from launch to a playable test world.",
     steps: [
-      "Open Groundtruth and leave the sidebar visible for the first run.",
+      "Open Groundtruth and start with the top mode buttons: Project, World, Play, Assets, and Debug.",
       "Open the Project workspace, pick Survival Outpost, and click Start Project From Template if you want the quickest good first run.",
       "If you do not want a template, open the World workspace, pick a Game Mode, and start with Third-Person Survival if you want the fullest slice.",
       "Click Generate Flat Outpost for a normal test world, Generate Town Grid for a road-and-block style test world, Generate Urban City for a denser streetscape built from the URBAN kit, or Generate Scale Test for a larger stress scenario.",
@@ -23,6 +23,7 @@ export const humanHelpSections: HelpSection[] = [
       "Move around, fight enemies, and use the Play, World, Assets, and Debug workspaces to understand what the world is doing.",
     ],
     notes: [
+      "The active workspace opens in a thin left rail. Use Hide Workspace when you want the viewport fully visible.",
       "If you only want a blank canvas, click New Empty World.",
       "Load Survival Slice gives you the authored survival demo instead of a generated outpost.",
     ],
@@ -112,6 +113,8 @@ export const humanHelpSections: HelpSection[] = [
       "Place scale and Place yaw affect newly placed entities.",
       "Zone shape and Zone size affect newly placed zones and can also be applied to selected zones.",
       "The prefab palette gives you quick buttons for common prefabs, while the prefab dropdown gives you the full list.",
+      "Map editing now shows a translucent preview on hover before you place a prefab or zone.",
+      "Shortcuts: 1/2/3/4 switch tools, Q/E rotate, [ and ] resize, mouse wheel adjusts size, Delete removes the current selection.",
     ],
   },
   {
@@ -205,8 +208,8 @@ export const humanHelpSections: HelpSection[] = [
     ],
     notes: [
       "The sector overlay is most useful in Third-Person Survival and Scale Test worlds.",
-      "If the sidebar gets in the way, use Hide Tools to collapse it and give the viewport more room.",
-      "A playable export can boot directly into player mode, which hides the editor sidebar entirely.",
+      "If the workspace gets in the way, use Hide Workspace to collapse the tool rail and give the viewport more room.",
+      "A playable export can boot directly into player mode, which hides the editor workspace entirely.",
     ],
   },
   {

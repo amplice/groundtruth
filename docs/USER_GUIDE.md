@@ -22,6 +22,13 @@ The top workspaces are now:
 - `Assets`: asset validation and asset fitting
 - `Debug`: deep runtime/session/sector/event details
 
+The shell is now closer to a classic editor:
+
+- the large mode buttons live across the top
+- the active workspace opens in a thin left tool rail
+- `Hide Workspace` collapses the rail when you want the viewport fully visible
+- `Play` is intentionally lighter than `World` and `Assets`
+
 ## First Run
 
 1. Open Groundtruth in the browser.
@@ -162,6 +169,16 @@ Buttons:
 
 - `Apply To Selected`: applies the current transform or zone settings to the selected object
 - `Delete Selected`: removes the selected entity or zone
+
+Direct editing shortcuts:
+
+- `1` `2` `3` `4`: switch edit tools
+- `Q` / `E`: rotate placement yaw
+- `[` / `]`: change placement scale or zone size
+- mouse wheel while editing in the viewport: change placement scale or zone size
+- `Delete`: remove the selected entity or zone
+
+Map editing now shows a translucent preview on hover before you place a prefab or zone.
 
 ### Stamps
 
@@ -421,8 +438,10 @@ This is where you generate, edit, inspect, and validate the active world.
 
 ## Assets Workspace
 
-- `Assets`: inspect asset load state, clip bindings, and warnings
-- `Asset Fit`: preview assets on a neutral floor, adjust fit/collision, and save back to the prefab
+- `Assets`: preview model prefabs in a separate asset viewport instead of inside the live world
+- `Asset Fit`: place the model on a neutral floor, adjust scale/yaw/offset, and save back to the prefab
+- clip bindings can be mapped from imported clip names to semantic slots like `idle`, `walk`, or `attack`
+- collision shape, size, and offset can also be edited there and saved back to the prefab
 
 ## Debug Workspace
 
