@@ -1566,6 +1566,20 @@ async function bootstrap(): Promise<void> {
     assetFitBindClipInput.value = clipNames.includes(selectedClip) ? selectedClip : clipNames[0]  ?? "";
   };
 
+  const syncAssetFitAnimationSpeedInput = (): void => {
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      assetFitAnimSpeedInput.value = "1";
+      return;
+    }
+    const selectedValue = assetFitAnimationInput.value || "idle";
+    if (selectedValue.startsWith("raw:")) {
+      return;
+    }
+    const savedSpeed = assetFitPrefab.render.clipSettings?.[selectedValue]?.speed ?? 1;
+    assetFitAnimSpeedInput.value = String(savedSpeed);
+  };
+
   const updateAssetFitOptionsFromPreview = (): void => {
     const assetFitPrefab = getAssetFitPrefab();
     if (!assetFitPrefab) {
@@ -1591,6 +1605,7 @@ async function bootstrap(): Promise<void> {
     assetFitAvailableOptions = [...semanticStates, ...rawClips];
     syncAssetFitAnimationOptions();
     syncAssetFitBindingOptions();
+    syncAssetFitAnimationSpeedInput();
   };
 
   const refreshAssetFitPreview = (): void => {
@@ -1742,6 +1757,7 @@ async function bootstrap(): Promise<void> {
     }
 
     const currentRender = assetFitPrefab.render;
+    const nextSpeed = readNumber(assetFitAnimSpeedInput.value, 1);
     store.apply([
       {
         op: "upsert_prefab",
@@ -1755,12 +1771,19 @@ async function bootstrap(): Promise<void> {
                 ...(currentRender.clips  ?? {}),
                 [state]: clipName,
               },
+              clipSettings: {
+                ...(currentRender.clipSettings ?? {}),
+                [state]: {
+                  ...(currentRender.clipSettings?.[state] ?? {}),
+                  speed: nextSpeed,
+                },
+              },
             },
           },
         },
       },
     ]);
-    appendEvent(`Bound '${state}' to clip '${clipName}' for '${assetFitPrefab.prefabId}'.`);
+    appendEvent(`Bound '${state}' to clip '${clipName}' for '${assetFitPrefab.prefabId}' at speed ${nextSpeed.toFixed(2)}.`);
     syncAssetFitInputs(true);
     refreshAssetFitPreview();
   };
@@ -3416,7 +3439,10 @@ async function bootstrap(): Promise<void> {
     appendEvent(`Asset fit selected prefab '${assetFitPrefabInput.value}'.`);
   });
 
-  assetFitAnimationInput.addEventListener("change", refreshAssetFitPreview);
+  assetFitAnimationInput.addEventListener("change", () => {
+    syncAssetFitAnimationSpeedInput();
+    refreshAssetFitPreview();
+  });
   assetFitAnimSpeedInput.addEventListener("input", refreshAssetFitPreview);
   assetFitScaleInput.addEventListener("input", refreshAssetFitPreview);
   assetFitYawInput.addEventListener("input", refreshAssetFitPreview);
@@ -3471,7 +3497,16 @@ async function bootstrap(): Promise<void> {
     refreshAssetFitPreview();
   });
 
-  assetFitBindStateInput.addEventListener("change", syncAssetFitBindingOptions);
+  assetFitBindStateInput.addEventListener("change", () => {
+    syncAssetFitBindingOptions();
+    const assetFitPrefab = getAssetFitPrefab();
+    if (!assetFitPrefab) {
+      assetFitAnimSpeedInput.value = "1";
+      return;
+    }
+    const savedSpeed = assetFitPrefab.render.clipSettings?.[assetFitBindStateInput.value]?.speed ?? 1;
+    assetFitAnimSpeedInput.value = String(savedSpeed);
+  });
 
   root.querySelector<HTMLButtonElement>("#apply-commands")?.addEventListener("click", () => {
     try {

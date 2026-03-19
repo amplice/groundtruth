@@ -29,6 +29,12 @@ Current shell behavior:
 - `Play` should stay lighter than `World` and `Assets`
 - `Hide Workspace` is the quick way to maximize viewport space for screenshots or playtesting
 
+Asset-fit behavior now persists more than just placement:
+
+- semantic clip bindings save into prefab render config
+- semantic clip speeds also save into prefab render config
+- runtime playback multiplies the live animation speed by the saved per-slot speed override
+
 ## What Groundtruth Is
 
 Groundtruth is not primarily a raw three.js code-editing task surface.

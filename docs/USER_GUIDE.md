@@ -441,6 +441,7 @@ This is where you generate, edit, inspect, and validate the active world.
 - `Assets`: preview model prefabs in a separate asset viewport instead of inside the live world
 - `Asset Fit`: place the model on a neutral floor, adjust scale/yaw/offset, and save back to the prefab
 - clip bindings can be mapped from imported clip names to semantic slots like `idle`, `walk`, or `attack`
+- semantic clip speeds can now be saved per slot from the asset tool, so `attack` can play faster or slower than `walk`
 - collision shape, size, and offset can also be edited there and saved back to the prefab
 
 ## Debug Workspace

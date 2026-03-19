@@ -56,6 +56,7 @@ export interface ModelRenderComponent {
   debugColor?: string;
   format?: "gltf" | "fbx";
   clips?: Record<string, string>;
+  clipSettings?: Record<string, { speed?: number }>;
   animationSources?: Record<string, string>;
   modelScale?: Vec3;
   modelOffset?: Vec3;

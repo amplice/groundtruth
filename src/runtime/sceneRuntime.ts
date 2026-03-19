@@ -32,6 +32,7 @@ interface AnimationBinding {
   mixer: THREE.AnimationMixer;
   actions: Map<string, THREE.AnimationAction>;
   clipAliases: Map<string, string>;
+  clipSettings: Map<string, { speed?: number }>;
   activeClipName: string | null;
   activeState: string | null;
   effectiveSpeed: number;
@@ -585,6 +586,7 @@ export class SceneRuntime {
             mixer,
             actions,
             clipAliases: new Map(Object.entries(render.clips ?? {})),
+            clipSettings: new Map(Object.entries(render.clipSettings ?? {})),
             activeClipName: null,
             activeState: null,
             effectiveSpeed: 1,
@@ -1059,6 +1061,7 @@ export class SceneRuntime {
         mixer,
         actions,
         clipAliases: new Map(Object.entries(render.clips ?? {})),
+        clipSettings: new Map(Object.entries(render.clipSettings ?? {})),
         activeClipName: null,
         activeState: null,
         effectiveSpeed: 1,
@@ -1840,8 +1843,10 @@ export class SceneRuntime {
     }
 
     const fadeSeconds = animation.fadeSeconds ?? 0.2;
+    const clipSpeed = binding.clipSettings.get(animation.state)?.speed ?? 1;
+    const effectiveSpeed = (animation.speed ?? 1) * clipSpeed;
     action.enabled = true;
-    action.setEffectiveTimeScale(animation.speed ?? 1);
+    action.setEffectiveTimeScale(effectiveSpeed);
     action.setLoop(
       animation.loop === "once" ? THREE.LoopOnce : THREE.LoopRepeat,
       Infinity,
@@ -1850,7 +1855,7 @@ export class SceneRuntime {
 
     if (binding.activeClipName === clipName) {
       binding.activeState = animation.state;
-      binding.effectiveSpeed = animation.speed ?? 1;
+      binding.effectiveSpeed = effectiveSpeed;
       binding.loopMode = animation.loop ?? "repeat";
       if (!action.isRunning()) {
         action.play();
@@ -1868,7 +1873,7 @@ export class SceneRuntime {
     action.play();
     binding.activeClipName = clipName;
     binding.activeState = animation.state;
-    binding.effectiveSpeed = animation.speed ?? 1;
+    binding.effectiveSpeed = effectiveSpeed;
     binding.loopMode = animation.loop ?? "repeat";
   }
 
