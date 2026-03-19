@@ -34,6 +34,7 @@ Asset-fit behavior now persists more than just placement:
 - semantic clip bindings save into prefab render config
 - semantic clip speeds also save into prefab render config
 - runtime playback multiplies the live animation speed by the saved per-slot speed override
+- multi-child compound collision is preserved and previewed as compound; do not flatten it unless you are intentionally replacing it
 
 ## What Groundtruth Is
 

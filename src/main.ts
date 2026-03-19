@@ -591,6 +591,7 @@ async function bootstrap(): Promise<void> {
                   <span>Shape</span>
                   <select id="asset-fit-collision-shape">
                     <option value="none">none</option>
+                    <option value="compound">compound</option>
                     <option value="box">box</option>
                     <option value="cylinder">cylinder</option>
                     <option value="sphere">sphere</option>
@@ -1057,6 +1058,8 @@ async function bootstrap(): Promise<void> {
   let stressCooldownFrames = 0;
   let assetFitBoundPrefabId = "";
   let assetFitAvailableOptions: Array<{ value: string; label: string }> = [];
+  let assetFitLockedCompoundShape: import("./core/schema").PhysicsShape | null = null;
+  let assetFitLockedCompoundChildCount = 0;
   let selectedTransformBoundEntityId: string | null = null;
   let selectedZoneBoundZoneId: string | null = null;
   let placedEntityCounter = 1;
@@ -1431,6 +1434,8 @@ async function bootstrap(): Promise<void> {
     }
     assetFitBoundPrefabId = prefabId;
     if (!assetFitPrefab) {
+      assetFitLockedCompoundShape = null;
+      assetFitLockedCompoundChildCount = 0;
       assetFitScaleInput.value = "1";
       assetFitYawInput.value = "0";
       assetFitOffsetYInput.value = "0";
@@ -1451,6 +1456,8 @@ async function bootstrap(): Promise<void> {
 
     // Populate collision fields from prefab physics component
     const physics = assetFitPrefab.prefab.components?.physics;
+    assetFitLockedCompoundShape = null;
+    assetFitLockedCompoundChildCount = 0;
     const resetCollisionOffsets = () => {
       assetFitColOxInput.value = "0";
       assetFitColOyInput.value = "0";
@@ -1477,6 +1484,15 @@ async function bootstrap(): Promise<void> {
         assetFitColSyInput.value = String(child.shape.radius);
         assetFitColSzInput.value = String(child.shape.radius);
       }
+    } else if (physics && physics.shape.type === "compound") {
+      assetFitLockedCompoundShape = JSON.parse(JSON.stringify(physics.shape)) as import("./core/schema").PhysicsShape;
+      assetFitLockedCompoundChildCount = physics.shape.children.length;
+      assetFitCollisionShapeInput.value = "compound";
+      assetFitSolidInput.checked = !physics.sensor;
+      assetFitColSxInput.value = "0";
+      assetFitColSyInput.value = "0";
+      assetFitColSzInput.value = "0";
+      resetCollisionOffsets();
     } else if (physics && physics.shape.type !== "compound") {
       assetFitCollisionShapeInput.value = physics.shape.type;
       assetFitSolidInput.checked = !physics.sensor;
@@ -1502,6 +1518,14 @@ async function bootstrap(): Promise<void> {
       assetFitColSzInput.value = "1";
       resetCollisionOffsets();
     }
+    const compoundLocked = assetFitCollisionShapeInput.value === "compound";
+    assetFitSolidInput.disabled = compoundLocked;
+    assetFitColSxInput.disabled = compoundLocked;
+    assetFitColSyInput.disabled = compoundLocked;
+    assetFitColSzInput.disabled = compoundLocked;
+    assetFitColOxInput.disabled = compoundLocked;
+    assetFitColOyInput.disabled = compoundLocked;
+    assetFitColOzInput.disabled = compoundLocked;
 
     const semanticStates = Array.from(
       new Set([
@@ -1644,15 +1668,18 @@ async function bootstrap(): Promise<void> {
       previewPhysics,
     );
     const previewReport = assetFitScene.getAssetFitPreviewReport();
+    const collisionNote = assetFitCollisionShapeInput.value === "compound"
+      ? `Collision: compound (${assetFitLockedCompoundChildCount} children). Previewed from prefab and read-only in Asset Fit.`
+      : "";
     assetFitStatusNode.textContent = previewReport
-      ? formatSingleAssetReport(previewReport)
-      : `Previewing '${assetFitPrefab.prefab.name}' on the floor.`;
+      ? [formatSingleAssetReport(previewReport), collisionNote].filter(Boolean).join("\n")
+      : [ `Previewing '${assetFitPrefab.prefab.name}' on the floor.`, collisionNote ].filter(Boolean).join("\n");
     updateAssetFitOptionsFromPreview();
   };
 
   const buildAssetFitPrimitiveShape = (): import("./core/schema").PhysicsPrimitiveShape | null => {
     const shapeType = assetFitCollisionShapeInput.value;
-    if (shapeType === "none") return null;
+    if (shapeType === "none" || shapeType === "compound") return null;
     const sx = readNumber(assetFitColSxInput.value, 1);
     const sy = readNumber(assetFitColSyInput.value, 1);
     const sz = readNumber(assetFitColSzInput.value, 1);
@@ -1677,6 +1704,9 @@ async function bootstrap(): Promise<void> {
   });
 
   const buildAssetFitPhysicsShape = (): import("./core/schema").PhysicsShape | null => {
+    if (assetFitCollisionShapeInput.value === "compound") {
+      return assetFitLockedCompoundShape ? JSON.parse(JSON.stringify(assetFitLockedCompoundShape)) as import("./core/schema").PhysicsShape : null;
+    }
     const primitive = buildAssetFitPrimitiveShape();
     if (!primitive) return null;
     const offset = buildAssetFitCollisionOffset();
@@ -3448,6 +3478,16 @@ async function bootstrap(): Promise<void> {
   assetFitYawInput.addEventListener("input", refreshAssetFitPreview);
   assetFitOffsetYInput.addEventListener("input", refreshAssetFitPreview);
   assetFitCollisionShapeInput.addEventListener("change", refreshAssetFitPreview);
+  assetFitCollisionShapeInput.addEventListener("change", () => {
+    const compoundLocked = assetFitCollisionShapeInput.value === "compound";
+    assetFitSolidInput.disabled = compoundLocked;
+    assetFitColSxInput.disabled = compoundLocked;
+    assetFitColSyInput.disabled = compoundLocked;
+    assetFitColSzInput.disabled = compoundLocked;
+    assetFitColOxInput.disabled = compoundLocked;
+    assetFitColOyInput.disabled = compoundLocked;
+    assetFitColOzInput.disabled = compoundLocked;
+  });
   assetFitSolidInput.addEventListener("change", refreshAssetFitPreview);
   assetFitColSxInput.addEventListener("input", refreshAssetFitPreview);
   assetFitColSyInput.addEventListener("input", refreshAssetFitPreview);

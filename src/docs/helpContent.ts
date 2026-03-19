@@ -211,6 +211,7 @@ export const humanHelpSections: HelpSection[] = [
       "If the workspace gets in the way, use Hide Workspace to collapse the tool rail and give the viewport more room.",
       "A playable export can boot directly into player mode, which hides the editor workspace entirely.",
       "Assets can now save semantic clip bindings and per-slot playback speed, not just model fit and collision.",
+      "Asset Fit now preserves real compound prefab collision instead of pretending it is a single primitive shape.",
     ],
   },
   {
