@@ -21,6 +21,10 @@ export class InputController {
     return true;
   }
 
+  endFrame(): void {
+    this.justPressed.clear();
+  }
+
   movementAxes(): { x: number; z: number; sprint: boolean } {
     let x = 0;
     let z = 0;

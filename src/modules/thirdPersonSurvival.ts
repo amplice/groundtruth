@@ -16,8 +16,8 @@ export class ThirdPersonSurvivalModule extends PresetActionModule {
 
   override onWorldRebuilt(world: ReturnType<ModuleContext["store"]["peekWorld"]>, context: ModuleContext): void {
     super.onWorldRebuilt(world, context);
-    this.sectorPopulation = this.requireFeature<SectorPopulationFeature>("sector_population");
-    this.hostileAI = this.requireFeature<HostileAIFeature>("hostile_ai");
+    this.sectorPopulation = this.findFeature<SectorPopulationFeature>("sector_population");
+    this.hostileAI = this.findFeature<HostileAIFeature>("hostile_ai");
   }
 
   protected override updateStatus(

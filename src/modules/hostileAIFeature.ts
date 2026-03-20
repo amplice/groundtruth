@@ -416,6 +416,9 @@ export class HostileAIFeature implements RuntimeFeature {
     distance: number,
     dtSeconds: number,
   ): boolean {
+    if (!host.hasRuntimeFeature("combat")) {
+      return false;
+    }
     if (!hostile.components.combat || distance > attackRange || !host.cooldownReady(hostile.id)) {
       return false;
     }

@@ -1,584 +1,490 @@
 # Groundtruth LLM Handoff
 
-This document is for another LLM or future me to continue work on Groundtruth with minimal warmup.
+This file is for another capable coding LLM to resume work on Groundtruth quickly and with the right mental model.
 
-It is intentionally blunt, operational, and context-heavy.
+It should be treated as the current operational truth, not a marketing summary.
 
-## What Groundtruth Is
+## Repository / Branch
 
-Groundtruth is a browser-first semantic 3D runtime/editor aimed at becoming an AI-native game engine.
+Repo root:
+- `C:\Users\cobra\groundtruth`
+
+Primary branch model:
+- `main` = reusable engine baseline
+- `game/zombie-survival` = current working branch for the playable zombie-survival slice and engine changes driven by that slice
+
+Current branch at time of this handoff:
+- `game/zombie-survival`
+
+Do not suggest splitting to a separate zombie-game repo yet. The user explicitly chose a branch strategy so engine and game can evolve together for now.
+
+## What Groundtruth Is Right Now
+
+Groundtruth is a browser-first semantic 3D runtime/editor trying to become an AI-native game engine.
 
 Current reality:
 - It is not yet a mature general engine.
-- It is an engine-shaped platform with:
-  - a semantic project/world model
-  - an in-browser runtime/editor
-  - project/templates/recipes/stamps
-  - playtest/evaluation tooling
-  - several implemented runtime modules
-  - several optional runtime features
-- It still contains too many built-in action/survival assumptions, but those are gradually being turned into policies and project data rather than hardcoded truths.
+- It is no longer just “a game with some editor bits” either.
+- It is currently most useful as:
+  - a project-based game-construction environment
+  - a semantic world/prefab/zone editor
+  - a playtest/runtime loop
+  - an asset fitting / asset prep environment
 
-The user is explicitly sensitive to this distinction. Do not casually treat Groundtruth as “the zombie game.” Treat the zombie survival slice as one project built on top of Groundtruth.
+The user is highly sensitive to Groundtruth pretending to be more engine-like than it really is. Be explicit.
 
-## Current Branch Strategy
+Correct framing:
+- Groundtruth is a promising engine-shaped platform.
+- The zombie survival game is one project using it.
+- Do not collapse those into the same thing.
 
-Repository root:
-- `C:\Users\cobra\groundtruth`
+## User Intent
 
-Branch model:
-- `main` is the reusable engine baseline
-- `game/zombie-survival` is where the current playable zombie-survival game work is happening
+The user wants Groundtruth to be genuinely useful as an AI-native engine.
 
-Current working branch during this handoff:
-- `game/zombie-survival`
-
-This strategy is intentional. The user wanted a branch where game-specific work can continue without contaminating the baseline too aggressively.
-
-Do not propose a separate repo yet unless Groundtruth becomes much more dependency-like and stable.
-
-## User’s Core Intent
-
-The user wants Groundtruth to become a genuine AI-native engine.
-
-That means:
-- the easy part should be adding mechanics/items/rules
-- the hard part Groundtruth should help with is:
+Their key belief:
+- adding new mechanics/items/rules is the easy part
+- the hard, valuable part is:
+  - coherent worldbuilding
   - asset integration
-  - world coherence
-  - semantic worldbuilding
-  - visual readability
-  - human + AI collaboration
+  - visual fitting / visual correctness
+  - making human visual judgment and AI semantic setup work together cleanly
 
-The user repeatedly called out that humans are better at visual judgment tasks like:
-- model scale
-- offset / ground contact
-- facing/orientation
-- overall “does this look right?”
+Important user preference:
+- humans are good at “does this look right?”
+- AIs are good at setup, wiring, semantic editing, repetitive config, and analysis
+- Groundtruth should respect that split instead of trying to force everything through code or through AI-only guesses
 
-So Groundtruth should support:
-- AI doing setup and analysis
-- human doing fast visual approval/correction
-- engine storing those corrections semantically
+## Product Principles That Must Persist
 
-That is why the Asset Fit workflow was added.
+### 1. Do not bake one game into Groundtruth
 
-## Important Product Principles
-
-These principles came up repeatedly and should be preserved.
-
-### 1. Do Not Bake One Game Into Groundtruth
-
-Use this decision order:
+Decision order:
 - project
-- preset/policy
+- preset / policy
 - feature
 - engine core
 
-If a change is:
-- specific to one project: keep it in project data
-- shared across a genre family: preset/policy/feature
-- shared across all uses: core
+Use this consistently.
 
-This rule is documented in:
+Examples:
+- zombie tuning, asset choices, world layout = project
+- third-person facing/camera/loot/respawn choices = policy
+- objective tracking / hostile AI / sector population = feature
+- schema, editor/runtime plumbing, save/open/export, asset-fit infrastructure = core
+
+Relevant docs:
 - `AGENTS.md`
 - `docs/ENGINE_RULEBOOK.md`
 - `docs/AI_OPERATOR_GUIDE.md`
 
-### 2. Groundtruth Needs Real Project/Export Lifecycle
+### 2. Durable game state belongs in world/project data
 
-Groundtruth should not feel like “a game that also has an editor.”
+We already hit a real bug where objective progress lived only in a runtime feature instance and was lost on rebuild.
 
-It now has:
-- save/open project
-- world variants inside a project
-- playable export JSON
-- standalone packaging script
+Rule:
+- if state answers “what has happened in the game?”, store it durably
+- if state answers “what is happening this frame?”, runtime memory is fine
 
-But the workflow still needs hardening and validation.
+### 3. Visual workflows matter
 
-### 3. Visual Workflows Matter
+Do not regress to “change constants blind in code” unless unavoidable.
 
-The user explicitly wants workflows like:
-- show model on floor
-- adjust scale / offset / yaw
-- save to prefab/project config
+The user explicitly wants:
+- asset on floor
+- scale / offset / yaw fitting
+- preview clips
+- save those decisions semantically
 
-Do not regress back to “edit constants blind in code” if you can avoid it.
+That is why Asset Fit exists and should keep improving.
 
-## Current Architecture Overview
+### 4. UX should follow classic editor logic
 
-### Core Data Layer
+Recent UX direction from the user:
+- large coarse work modes along the top
+- thin sidebars / tool rails for the active mode
+- game viewport remains primary
+- huge slabs of overview/forms are bad
+- “am I playing, editing the map, or working on assets?” should be obvious
 
-Files:
-- `src/core/schema.ts`
-- `src/core/worldStore.ts`
-- `src/core/commands.ts`
-- `src/core/policies.ts`
+The user strongly disliked the giant workspace slab version. Do not go back.
 
-Important concepts:
-- `ProjectDocument`
-- `WorldDocument`
-- entities
-- prefabs
-- zones
-- objectives
-- project runtime config
-- gameplay policy overrides
-- objective progress snapshots
+## Current UX / Shell State
 
-Durable gameplay state should live in world/project data, not only feature-local runtime memory.
+Groundtruth recently went through a major UX restructuring.
 
-This was a real bug with objectives and was fixed by persisting objective progress into world state.
+Current broad shell direction:
+- top-level mode buttons:
+  - `Playtest`
+  - `Map`
+  - `Assets`
+- utility buttons:
+  - `Project`
+  - `Debug`
+  - `Docs`
+  - `Pause`
+  - `Hide HUD`
+  - `Hide Workspace`
 
-### Runtime / Editor Layer
+Current intended behavior:
+- viewport is primary
+- tools are supporting overlays/rails, not the whole app
+- `Play` vs `Edit` is a meaningful distinction
+- in `Edit`, gameplay sim is paused
+- there is also an always-visible `Pause` / `Resume` control in the top chrome
 
-Files:
-- `src/main.ts`
-- `src/runtime/sceneRuntime.ts`
-- `src/runtime/physicsRuntime.ts`
+Recent UX changes already in code:
+- classic-editor-ish top bar + thinner left tool rail
+- `Overview` slab reduced / removed from prominence
+- `Map` and `Assets` are now first-class modes
+- HUD has a top-level show/hide and corner anchoring instead of ugly scroll
 
-What it does:
-- browser shell
-- editor UI
-- world generation/load/reset
-- play mode / authoring
-- save/open/export
-- viewport
-- asset-fit preview
-- runtime HUD and overlays
+Still rough:
+- UX still needs more refinement
+- some tool panels are still denser/noisier than ideal
+- `Assets` is better, but still not yet a polished standalone asset/animation workflow
 
-### Modules / Features
+## Current Working Modes
 
-Files:
-- `src/modules/registry.ts`
-- `src/modules/thirdPersonAction.ts`
-- `src/modules/thirdPersonSurvival.ts`
-- `src/modules/actionModulePresets.ts`
-- `src/modules/runtimeFeatureRegistry.ts`
+### Playtest
 
-Implemented modules:
-- `third_person_survival`
-- `third_person`
-- `first_person`
-- `top_down`
-- `platformer`
+Purpose:
+- play the game
+- see essential HUD / findings
+- pause / resume
+- check runtime behavior
 
-Feature system exists. Current meaningful features include:
-- combat
-- interaction_inventory
-- combat_feedback
-- hostile_ai
-- sector_population
-- objective_progress
+### Map
 
-The long-term direction is:
-- modules become mostly preset + feature composition
-- fewer special-case subclasses
+Purpose:
+- author the world directly
+- place / move / resize / zone
+- direct-manipulation editing
 
-### Project / Template / Recipe Layer
+Important recent map improvements:
+- translucent place preview on hover
+- translucent zone preview on hover
+- edit/play split is clearer
+- keyboard shortcuts:
+  - `1-4` tool switching
+  - `Q/E` rotate
+  - `[` / `]` resize
+  - mouse wheel resize
+  - `Delete` delete selected
 
-Files:
-- `src/core/projectTemplates.ts`
-- `src/core/worldRecipes.ts`
-- `src/core/worldStamps.ts`
-- `src/core/exportFormat.ts`
-- `scripts/export-playable-build.mjs`
+### Assets
 
-Mental model:
-- project = whole game workspace
-- world variant = map/version within that project
-- template = starting project slice
-- recipe = stronger precomposed slice
-- stamp = reusable world chunk
+Purpose:
+- prepare models for use in the game
+- fit transforms
+- inspect / preview animations
+- tune collision
 
-## Current Zombie Survival Game State
+This mode is one of the most important differentiators for Groundtruth right now.
 
-The user is now trying to build a real third-person zombie survival game on `game/zombie-survival`.
+## Asset Fit: Current State
 
-Current slice state:
-- third-person player movement is working reasonably
-- zombie animations are working on the current selected zombie asset
-- pistol loop exists
-- objective loop exists
-- urban city world generation exists
-- project save/open exists
-- asset-fit exists
+Asset Fit is no longer just a tiny helper. It is the beginning of the human+AI asset pipeline.
+
+What it currently does:
+- separate preview viewport
+- select / cycle model prefabs
+- preview asset on neutral floor/platform
+- adjust:
+  - scale
+  - yaw
+  - Y offset
+- inspect semantic/raw clip options
+- bind semantic clip names
+- set per-slot clip speeds
+- configure collision shape / offsets / solid-vs-sensor
+- apply changes back into prefab config
+
+Important corrections made recently:
+- multi-child compound colliders are now preserved instead of being flattened by accident
+- compound collision in Asset Fit is recognized honestly rather than misreported as a primitive
+- selection now syncs Asset Fit to the selected entity’s prefab to reduce mismatch/confusion
+- preview wireframes distinguish:
+  - solid = green
+  - sensor = orange
+
+Very important nuance:
+- Asset Fit edits the prefab type, not one instance
+- the user expects those edits to affect all entities of that prefab type in the world
+
+## Collision / Physics Findings
+
+This was a major debugging area recently. Read carefully.
+
+### Sensor bug
+
+The `Solid (blocks movement)` toggle in Asset Fit originally appeared to work visually but did not change live gameplay blocking.
+
+Real findings:
+- Rapier character controller supports `QueryFilterFlags.EXCLUDE_SENSORS`
+- Groundtruth was not using that flag
+- we were only filtering by predicate afterward
+- that was insufficient; sensors could still affect movement/grounding
+
+Current fix:
+- [physicsRuntime.ts](C:/Users/cobra/groundtruth/src/runtime/physicsRuntime.ts) now passes `QueryFilterFlags.EXCLUDE_SENSORS` into `computeColliderMovement(...)`
+- player debug now also shows `Sensor: true/false` for the selected collider
+
+Result:
+- user confirmed they can now walk through sensor-marked objects
+
+### Prefab/entity physics inheritance
+
+Another real issue:
+- `resolveEntity()` in [schema.ts](C:/Users/cobra/groundtruth/src/core/schema.ts) used to shallow-merge components
+- entity-level `physics` could mask later prefab physics changes
+
+Current fix:
+- `physics` now merges field-by-field so prefab sensor/body/shape changes propagate more correctly
+
+### Low obstacle traversal
+
+The user wanted low obstacles to be walk-up-able.
+
+Current change:
+- character autostep height in [physicsRuntime.ts](C:/Users/cobra/groundtruth/src/runtime/physicsRuntime.ts) was raised to `0.5`
+
+### Current unresolved / still-in-flux feel issue
+
+There was a road/sidewalk hitch in the urban map.
+
+Findings:
+- urban road prefabs had solid colliders on top of the existing ground slab
+- this created curb-like blocking/hitches
+
+Changes made:
+- removed physics from `urban_road_straight` and `urban_road_junction` in [worldFactory.ts](C:/Users/cobra/groundtruth/src/core/worldFactory.ts)
+- added migration in [main.ts](C:/Users/cobra/groundtruth/src/main.ts) to strip stale saved road colliders from persisted project/autosave data
+- then adjusted road render offsets to reduce visible foot sinking
+- also added migration to normalize saved road model offsets
+
+Status:
+- user reported they can walk on roads fine now
+- but there was a follow-up concern about feet sinking into the road
+- the latest change was to set road `modelOffset.y = 0` and migrate saved road offsets to `0`
+- this latest visual road fix needs live confirmation
+
+If the sinking still persists, investigate road mesh placement / visual ground relation further, but do not reintroduce blocking road colliders casually.
+
+## Current Game Slice
+
+The current active project direction is a third-person zombie survival game.
+
+Implemented enough to matter:
+- third-person player control
+- zombie model integration
+- pistol loop
+- objective loop
+- urban city generation
+- world/project save/open
+- asset fitting
 
 Still rough:
 - richer worldbuilding
-- better prop/environment integration
-- weapon / inventory sophistication
-- visual polish
-- export validation
-- more survival identity over time-based play
+- better asset coherence
+- stronger survival identity over time
+- better readability / landmarking
+- more polished level flow
 
-## Current Asset Situation
+The user repeatedly prefers improving coherence and real usability over adding endless mechanics.
 
-### Zombie Pack
+## Current Asset State
+
+### Zombie assets
 
 Path:
 - `public/assets/zombie_models`
 
-Important notes:
-- The current zombie uses:
-  - `/assets/zombie_models/FBX/PS1_Zombie_2.fbx`
-- Clip mapping that worked:
-  - `IdleZ`
-  - `WalkZ`
-  - `GrabBiteZ`
-  - `DamageZ`
-  - `DieZ`
-  - `ClimbGraveZ`
+Current default zombie base:
+- `/assets/zombie_models/FBX/PS1_Zombie_2.fbx`
 
-Do not blindly switch back to the other zombie FBX without rechecking fit/load behavior.
+Known working clip names:
+- `IdleZ`
+- `WalkZ`
+- `GrabBiteZ`
+- `DamageZ`
+- `DieZ`
+- `ClimbGraveZ`
 
-The zombie integration went through several failure modes:
-- invisible model
-- wrong clip names
-- model sinking below ground
-- asset preview issues
+Important:
+- zombie integration already hit several failure modes:
+  - wrong clip names
+  - invisible model
+  - bad offset / sinking
+  - preview issues
+- use Asset Fit, not blind code tuning
 
-Treat zombie model changes cautiously and use Asset Fit.
-
-### URBAN Pack
+### Urban assets
 
 Path:
 - `public/assets/urban_models`
 
-Important structural findings:
-- `Road type 2` is a modular 16x16 road kit
-- `Buildings Prebuild` contains lot-sized blocks:
-  - square flats about `17x17x17`
-  - L-shape about `21x17x27`
-- `Bus stops`, `Traffic lights`, `Cones & Barriers`, `Walls & Fences`, and `Litter` contain useful street dressing and blockers
-
-Current URBAN integration lives in:
-- `src/core/worldFactory.ts`
-
-Current URBAN prefab coverage includes:
+Groundtruth currently uses:
 - roads
 - apartment block variants
 - bus stops
 - street lights
 - traffic lights
-- jersey barriers
+- barriers
 - cones
-- metal fence
-- plaster wall
-- dumpster
+- fences
+- plaster walls
+- dumpsters
 - trash cans
-- trash bag
+- trash bags
 
-Current generator:
-- `makeUrbanCityWorld()`
+There are also some runtime-safe copied GLB paths under:
+- `public/assets/urban_runtime/props`
 
-Current UI entry points:
-- `Build > World > Generate Urban City`
-- `Build > Project > Urban City Survival`
+Those exist because some original URBAN paths were returning HTML instead of model data through Vite due to awkward folder/path handling.
 
-### Why the URBAN Pack Matters
+### Grass / terrain texture
 
-The user explicitly said the hard part of an AI-native engine is not “make another item.”
-It is:
-- coherent worldbuilding
-- asset integration
-- visual richness
-- using human visual judgment where it matters
+The flat green terrain was replaced with a tiled grass texture from:
+- `public/assets/asset_variety_pack`
 
-The URBAN work is directly aligned with that goal.
+Ground is now textured rather than flat green.
 
-## Asset Fit Workflow
+## Save / Open / Export
 
-Groundtruth now has an Asset Fit workflow because blind code-based fitting was too brittle.
+Groundtruth now has a real project workflow, not just one world in memory.
 
-Where:
-- `Inspect > Asset Fit`
+Important distinctions:
+- `Save Project` / `Open Project`
+  - whole editable project
+- `Save World Variant` / `Open World Variant`
+  - map variants within the current project
+- `Export Project`
+  - richer envelope
+- `Build Playable Export`
+  - playable build-oriented output
 
-What it does:
-- separate preview viewport
-- preview asset on neutral platform scene
-- adjust:
-  - scale
-  - yaw
-  - Y offset
-- inspect raw/semantic clips
-- apply the fit back into the prefab
-
-Why it exists:
-- user explicitly wanted a human-friendly visual fitting loop
-
-Important:
-- applied prefab fit should now survive template starts and refresh better than before
-- but saved project flow is still the real intended persistence path
-
-## Save / Open / Export State
-
-Current workflow:
-- `Save Project` = editable working file
-- `Open Project` = load editable/saved project
-- `Save World Variant` = save current world inside active project
-- `Open World Variant` = switch world inside project
-- `Export Project` = richer envelope
-- `Build Playable Export` = player-oriented build doc
-
-Keyboard:
+Also:
 - `Ctrl+S` saves project
+- autosave exists, but explicit save/open is the intended workflow
 
-Important UX cleanup already done:
-- “project” vs “world variant” naming is explicit
+The user cares about this distinction and asked for the wording cleanup.
 
-## Known Important Bugs / Lessons
+## Templates / Worlds / Generator State
 
-### Objective State Bug Class
+Groundtruth currently has:
+- flat outpost world
+- town grid world
+- urban city world
+- project templates including `Urban City Survival`
 
-We discovered a real class of bugs:
-- gameplay-significant state living only in runtime feature instances
-- that state disappearing on world rebuild/recreate
+Important recent fix:
+- template dropdown / template start behavior used to reset/fall back incorrectly
+- this was fixed in `src/main.ts`
 
-This happened with objective progress.
+Important urban-generation note:
+- the user thinks of road straight / junction behavior as the same category of road issue
+- treat them together unless there is a clear technical reason not to
 
-The fix:
-- persist durable objective progress into world/project state
+## Current Code Areas To Read First
 
-Carry this lesson forward:
-- if the state answers “what has happened in the game?”
-  - store it durably
-- if it answers “what is happening this frame?”
-  - runtime memory is fine
+If resuming active work, read these first:
 
-### Input/UI Collision Bug
-
-There was a bug where `Space` could retrigger focused HTML controls and look like teleport/reset behavior.
-
-Gameplay keys in play mode now explicitly capture/prevent default in the relevant input path.
-
-Do not regress this.
-
-### Template UI Reset Bug
-
-The template dropdown used to reset itself to the first option when rebuilt.
-
-This was fixed by preserving current selection and preferring project `templateId`.
-
-If template behavior looks wrong again, inspect:
-- `syncProjectTemplates()` in `src/main.ts`
-- `startProjectFromTemplate()` in `src/main.ts`
-
-## Current User Preferences / Expectations
-
-These matter.
-
-### The user values:
-- directness
-- architectural honesty
-- clear separation between engine and game
-- AI-native workflows that respect human strengths
-- visual coherence / legibility
-
-### The user dislikes:
-- pretending Groundtruth is already more engine-like than it is
-- hardcoding game-specific behavior without calling it out
-- trial-and-error asset integration with no visual workflow
-- vague terminology
-
-### The user has explicitly pushed for:
-- real project saving/loading
-- branch separation between engine and game work
-- docs for humans and AIs
-- context preservation for future models
-
-## Files Another LLM Should Know First
-
-If you need to continue work, read these first:
-
-### Must-read
+Must-read:
 - `AGENTS.md`
 - `docs/ENGINE_RULEBOOK.md`
 - `docs/AI_OPERATOR_GUIDE.md`
 - `docs/USER_GUIDE.md`
-- `docs/ROADMAP.md`
 - `src/main.ts`
 - `src/core/worldFactory.ts`
 - `src/core/schema.ts`
 - `src/core/worldStore.ts`
-- `src/core/policies.ts`
-- `src/modules/actionModulePresets.ts`
+- `src/runtime/physicsRuntime.ts`
+- `src/runtime/sceneRuntime.ts`
 - `src/modules/thirdPersonAction.ts`
 - `src/modules/thirdPersonSurvival.ts`
-- `src/runtime/sceneRuntime.ts`
+- `src/modules/actionModulePresets.ts`
 
-### Important supporting files
+Useful supporting files:
 - `src/core/projectTemplates.ts`
 - `src/core/worldRecipes.ts`
 - `src/core/worldStamps.ts`
 - `src/core/evaluation.ts`
 - `src/core/exportFormat.ts`
-- `scripts/export-playable-build.mjs`
 - `src/docs/helpContent.ts`
+- `scripts/export-playable-build.mjs`
 
-## Where to Put Future Changes
+## Current Dirty State
 
-Use this rubric every time:
+At the time of this handoff, there are local uncommitted modifications in:
+- `src/core/schema.ts`
+- `src/core/worldFactory.ts`
+- `src/main.ts`
+- `src/runtime/physicsRuntime.ts`
+- `src/runtime/sceneRuntime.ts`
+- docs files:
+  - `docs/AI_OPERATOR_GUIDE.md`
+  - `docs/USER_GUIDE.md`
+  - `src/docs/helpContent.ts`
 
-### Put it in project data if:
-- it is specific to the zombie game
-- it is specific to a world slice
-- it is content
-- it is tuning
-- it is a fit/placement choice for one project
+These local changes include the recent:
+- pause button work
+- asset-fit preview/solid-sensor UX work
+- sensor collision fix
+- road collider removal and road offset migration
 
-### Put it in preset/policy if:
-- multiple action-style games might want it
-- it is a rule choice like:
-  - facing mode
-  - respawn mode
-  - loot behavior
-  - aggro/leash tuning
-  - camera style
+`npm run build` was passing after the latest changes.
 
-### Put it in a feature if:
-- it is an optional runtime capability
-- multiple modules may want it on/off
-- examples:
-  - hostile AI
-  - objective tracking
-  - combat feedback
-  - sector population
+Untracked temp artifacts still exist and should generally be ignored unless the user explicitly asks about cleanup:
+- `tmp-playable-build/`
+- `tmp-playable-build-2/`
+- `tmp.playable-test.project.json`
 
-### Put it in core if:
-- every project/module will rely on it
-- it is schema/runtime/editor infrastructure
+## User Preferences / Working Style
 
-## Session Work Log (2026-03-18)
+Important:
+- the user prefers directness and architectural honesty
+- they do not want lazy or cosmetic “fixes”
+- they want real investigation before patching bugs
+- they dislike vague “it should be fixed now” claims without understanding the cause
 
-This section documents everything done in the most recent working session. The user set 5 priorities and asked the AI to work through them continuously.
+Recently the user explicitly called out:
+- stop making random changes before investigating properly
 
-### Agreed Priorities
+Take that seriously.
 
-1. **P1: Fix spatial foundation** — dumpster collision bug, physics diagnostics
-2. **P2: Simplify UI** — reduce sidebar noise, promote gameplay policy
-3. **P3: Expand asset viewer** — collision controls, animation speed
-4. **P4: Semantic map editing** — not started, needs design discussion
-5. **P5: Keep scripting semantic** — already working (policies, features, presets)
+## Blender MCP / Tooling Preference
 
-### P1: Fix Spatial Foundation
+Outside the repo, the user disabled Blender MCP auto-start in Codex config and prefers Blender/MCP to be used only when explicitly requested.
 
-**Rapier broad-phase fix** (`src/runtime/physicsRuntime.ts`):
-- Added `nextWorld.step()` after creating all bodies/colliders in `syncWorld()` so Rapier populates its broad-phase acceleration structure before the character controller queries it. Without this, `computeColliderMovement()` could miss colliders that were just created.
+Practical implication:
+- do not assume Blender MCP is available
+- do not try to use it unless the user asks
 
-**Physics diagnostics**:
-- Added body count summary on each `syncWorld()`: logs static/kinematic/dynamic body counts and total collider count
-- Added player physics debug to the in-game HUD (grounded state, collision count, physics position, desired delta) via `getEntityDebug()` method
-- Removed ad-hoc per-entity debug logging for dumpsters/barriers/fences
+## Best Next Work
 
-**Status**: The dumpster collision bug is **still unresolved**. Exhaustive code analysis showed the physics setup is correct — all entities use the same placement convention, collider sizes and filter predicates check out. The broad-phase fix may resolve it but needs live testing. The diagnostics are in place to help debug if it persists.
+The best next work is not “add more random game features.”
 
-**Key physics convention**: Entity position = object center. `modelOffset` = visual-only shift (THREE.js child offset). Physics collider sits at entity position with no offset (unless compound shape with explicit offset).
+Priority areas:
+1. validate and polish the new road visual alignment after the no-collider change
+2. keep improving `Map` into a clean, direct level-editing workflow
+3. keep improving `Assets` into a real model/animation prep tool
+4. improve urban world coherence and readability
+5. make human+AI collaboration surfaces more intentional and less noisy
 
-### P2: Simplify UI
-
-Major restructuring of `src/main.ts` sidebar:
-
-- **Gameplay Policy** moved to top of Build tab (right after Project), opened by default
-- Camera distance/pitch are the first controls visible
-- World parameters (seed, size, counts) collapsed behind “Advanced parameters” subsection
-- Project buttons simplified — Save/Open Variant and Export behind “More project options” `<details>` subsection
-- Authoring, Stamps, Sectors, Evaluation sections closed by default
-- Overview card reduced from 9 rows to 5
-- Brand text updated: “Game Engine” / “AI-native 3D game engine”
-- “Generate Urban City” is the first/promoted world generator button
-
-**Model Tuning section removed entirely** — it was redundant with Asset Fit. Removed: `syncModelTuningInputs`, `applySelectedModelTuning`, `modelTuningBoundEntityId`, all related HTML, event handlers, querySelector bindings, and null checks.
-
-**Merged Open Project + Open Playable Export** into a single “Open” button. `resolveImportedProject()` in `src/core/exportFormat.ts` already handles all three formats (raw ProjectDocument, export envelope, playable build), so two separate buttons and file inputs were unnecessary. The handler now auto-detects format and shows an appropriate import message.
-
-**Removed beforeunload popup** — the “Reload site? Changes that you made may not be saved” dialog was disabled because it was disruptive during development. Project state is saved explicitly via Save Project.
-
-### P3: Expand Asset Viewer
-
-**Collision controls** added to Asset Fit panel:
-- Shape type dropdown (none / box / cylinder / sphere / capsule)
-- Solid/sensor toggle checkbox
-- Size X/Y/Z inputs
-- Offset X/Y/Z inputs — non-zero offset creates a single-child compound shape (`PhysicsCompoundShape`), loading a single-child compound populates the offset fields back
-
-Key functions added to `src/main.ts`:
-- `buildAssetFitPrimitiveShape()` — reads shape type + size inputs → `PhysicsPrimitiveShape`
-- `buildAssetFitCollisionOffset()` — reads offset inputs → `Vec3`
-- `buildAssetFitPhysicsShape()` — combines primitive + offset → `PhysicsShape` (compound if offset is non-zero)
-- `buildAssetFitPhysicsComponent()` — wraps shape with body type + sensor flag
-- `syncAssetFitInputs()` updated to populate collision fields from prefab (handles simple shapes, single-child compounds, and no-physics)
-
-**Apply To Prefab** now saves collision settings (preserves existing body type from prefab).
-
-**Live collision wireframe preview** in Asset Fit viewport — `sceneRuntime.setAssetFitPreview()` extended with optional `physicsShape` parameter that renders wireframe collider geometry.
-
-**Animation speed control** added:
-- New “Anim speed” input next to animation dropdown
-- Wired through `parseAssetFitAnimationSelection()` → `AnimationComponent.speed`
-- Scene runtime already supported `animation.speed` via `setEffectiveTimeScale()`
-- Resets to 1.0 when switching prefabs
-
-### P4: Semantic Map Editing
-Not started. Needs design discussion with user.
-
-### P5: Keep Scripting Semantic
-Already working via policies, features, and presets. No changes needed.
-
-### CSS Changes
-
-Added `.subsection` style to `src/styles.css` for nested collapsible parameter groups:
-- Thin top border, smaller font, `+`/`-` toggle markers
-- Used by “Advanced” in World section and “More project options” in Project section
-
-### Type Error Fixed
-
-`TS2352` in `buildAssetFitPhysicsComponent` — `PhysicsShape` couldn’t cast directly to `Record<string, unknown>` because `PhysicsCompoundShape` doesn’t have an index signature. Fixed with double-cast: `shape as unknown as Record<string, unknown>`.
-
-## Current “Next Best Work”
-
-If continuing the zombie game / Groundtruth hybrid path, the highest-value areas are:
-
-1. **Live-test dumpster collision fix** — the broad-phase fix and diagnostics are in place, user needs to play and see if dumpsters/barriers now block the player. Check console for `[physics-sync]` log and HUD for collision count.
-2. richer urban world coherence
-3. more URBAN prop integration
-4. better extraction / landmark readability
-5. targeted real asset integration for player / weapon / buildings
-6. validation of save/open/export workflow in real use
-
-The user currently cares more about:
-- world richness
-- asset integration
-- coherence
-
-than about endlessly adding more mechanics.
-
-## Concrete Next Steps After This Handoff
-
-Good next moves:
-
-1. **Test collision fix** — play the game and walk into dumpsters/barriers/fences. If they still don’t block, look at HUD collision count and `[physics-sync]` log to narrow down.
-2. **Semantic map editing (P4)** — design discussion needed. Possible directions: click-to-place entities, drag-to-move, entity property inspector in viewport.
-3. **Asset Fit remaining work** — standalone panel mode (pop out into separate window), batch fitting
-4. Tune newly added URBAN clutter props that float/sink
-5. Add more lot dressing: fences, barriers, dumpsters, curb clutter
-6. Add clearer objective/extraction landmarking in the urban slice
-7. Start integrating more of the user’s real models through Asset Fit
-
-## Operational Notes
-
-- Always run `npm run build` or `npx tsc --noEmit` after changes to verify.
-- The repo may have untracked asset folders (`public/assets/urban_models/`, `public/assets/zombie_models/`, `public/assets/items_models/`) and temp export artifacts (`tmp-playable-build/`, `tmp-playable-build-2/`).
-- Do not revert unrelated dirty worktree changes unless explicitly asked.
-- The user finds the beforeunload popup annoying — it has been disabled. Don’t re-enable it.
+The right mindset:
+- simplify
+- make visual workflows honest
+- prefer elegant infrastructure that helps real use
+- let game-driven friction reveal engine changes worth making
 
 ## Final Reminder
 
-Do not optimize for “adding more features” unless they solve the real bottleneck.
+Groundtruth becomes valuable if it helps with:
+- asset prep
+- world coherence
+- visual correctness
+- project persistence
+- human+AI collaboration
 
-The real bottleneck the user identified is:
-- how to make a rich, coherent, playable world
-- with assets and human visual judgment in the loop
-
-Groundtruth becomes valuable if it makes that easier.
+It does not become valuable by endlessly accreting more mechanics, templates, or genre labels.

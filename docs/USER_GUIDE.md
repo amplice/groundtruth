@@ -27,6 +27,7 @@ The shell is now closer to a classic editor:
 - the large mode buttons live across the top
 - the active workspace opens in a thin left tool rail
 - `Hide Workspace` collapses the rail when you want the viewport fully visible
+- `Pause` freezes gameplay without forcing you into map edit mode
 - `Play` is intentionally lighter than `World` and `Assets`
 
 ## First Run

@@ -28,6 +28,7 @@ Current shell behavior:
 - the active workspace opens in a thin left tool rail
 - `Play` should stay lighter than `World` and `Assets`
 - `Hide Workspace` is the quick way to maximize viewport space for screenshots or playtesting
+- `Pause` freezes runtime update/physics without forcing a switch into map editing
 
 Asset-fit behavior now persists more than just placement:
 

@@ -530,6 +530,27 @@ export function resolveEntity(
 ): ResolvedEntity {
   const prefab = entity.prefabId ? world.prefabs[entity.prefabId] : undefined;
   const tags = [...new Set([...(prefab?.tags ?? []), ...(entity.tags ?? [])])];
+  const prefabComponents = prefab?.components ?? {};
+  const entityComponents = entity.components ?? {};
+  const mergedComponents = {
+    ...prefabComponents,
+    ...entityComponents,
+  };
+  const prefabPhysics = prefabComponents.physics;
+  const entityPhysics = entityComponents.physics;
+  if (prefabPhysics || entityPhysics) {
+    mergedComponents.physics = {
+      ...(prefabPhysics ?? {}),
+      ...(entityPhysics ?? {}),
+      body: entityPhysics?.body ?? prefabPhysics?.body ?? "static",
+      shape: entityPhysics?.shape ?? prefabPhysics?.shape ?? { type: "box", size: { x: 1, y: 1, z: 1 } },
+      ...(entityPhysics?.sensor !== undefined
+        ? { sensor: entityPhysics.sensor }
+        : prefabPhysics?.sensor !== undefined
+          ? { sensor: prefabPhysics.sensor }
+          : {}),
+    };
+  }
 
   return {
     ...entity,
@@ -547,10 +568,7 @@ export function resolveEntity(
         z: entity.transform.scale?.z ?? prefab?.transform?.scale?.z ?? 1,
       },
     },
-    components: {
-      ...prefab?.components,
-      ...entity.components,
-    },
+    components: mergedComponents,
   };
 }
 

@@ -127,7 +127,7 @@ export class WorldStore {
       },
     };
     this.project.metadata.updatedAt = new Date().toISOString();
-    this.emit("world");
+    this.emit("project");
   }
 
   clearProjectGameplayPolicy(policyId: GameplayPolicyProfileId): void {
@@ -140,7 +140,7 @@ export class WorldStore {
       gameplayPolicies: nextPolicies,
     };
     this.project.metadata.updatedAt = new Date().toISOString();
-    this.emit("world");
+    this.emit("project");
   }
 
   recordAppliedSuggestion(suggestionId: string, title: string): void {

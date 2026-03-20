@@ -195,6 +195,8 @@ export class SceneRuntime {
 
   private playerDangerLevel = 0;
 
+  private combatFeedbackEnabled = true;
+
   private debugOptions: SceneDebugOptions = {
     showZones: true,
     showCombatRanges: false,
@@ -214,6 +216,8 @@ export class SceneRuntime {
   private currentSectorOverlaySignature = "";
 
   private currentFirstPersonTargetId: string | null = null;
+
+  private selectionEnabled = true;
 
   private previewBinding: AnimationBinding | null = null;
 
@@ -313,7 +317,7 @@ export class SceneRuntime {
       this.entityGroup.add(object);
       this.entityMap.set(entity.id, object);
       const health = entity.components.health;
-      if (health && shouldCreateHealthBar(entity)) {
+      if (this.combatFeedbackEnabled && health && shouldCreateHealthBar(entity)) {
         this.createHealthBar(entity.id, health.current, health.max);
       }
     }
@@ -361,6 +365,43 @@ export class SceneRuntime {
     this.tickDangerOverlay();
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
+  }
+
+  setViewportSelectionEnabled(enabled: boolean): void {
+    this.selectionEnabled = enabled;
+    if (!enabled) {
+      this.setSelection(null, null);
+    }
+  }
+
+  setSelectionState(entityId: string | null, zoneId: string | null = null): void {
+    this.setSelection(entityId, zoneId);
+  }
+
+  setCombatFeedbackEnabled(enabled: boolean): void {
+    if (this.combatFeedbackEnabled === enabled) {
+      return;
+    }
+    this.combatFeedbackEnabled = enabled;
+    if (!enabled) {
+      this.flashStates.clear();
+      this.clearFloatingMarkers();
+      this.clearHealthBars();
+      this.playerDangerLevel = 0;
+      this.dangerOverlay.style.opacity = "0";
+      return;
+    }
+    if (!this.currentWorld) {
+      return;
+    }
+    this.clearHealthBars();
+    for (const item of this.currentWorld.entities) {
+      const entity = resolveEntity(this.currentWorld, item);
+      const health = entity.components.health;
+      if (health && shouldCreateHealthBar(entity)) {
+        this.createHealthBar(entity.id, health.current, health.max);
+      }
+    }
   }
 
   updateEntityTransform(entityId: string, transform: Partial<Transform>): void {
@@ -540,6 +581,7 @@ export class SceneRuntime {
     render: ModelRenderComponent | null,
     animation?: AnimationComponent,
     physicsShape?: PhysicsShape | null,
+    physicsSensor = false,
   ): void {
     const revision = this.beginPreview();
     this.previewAnimationState = animation;
@@ -549,7 +591,7 @@ export class SceneRuntime {
 
     // Add collision wireframe if shape provided
     if (physicsShape) {
-      const wireframe = this.buildColliderWireframes(physicsShape);
+      const wireframe = this.buildColliderWireframes(physicsShape, physicsSensor);
       if (wireframe) {
         this.previewGroup.add(wireframe);
       }
@@ -715,6 +757,9 @@ export class SceneRuntime {
     durationSeconds = 0.18,
     strength = 0.95,
   ): void {
+    if (!this.combatFeedbackEnabled) {
+      return;
+    }
     if (!this.entityMap.has(entityId)) {
       return;
     }
@@ -727,6 +772,9 @@ export class SceneRuntime {
   }
 
   updateEntityHealth(entityId: string, current: number, max: number): void {
+    if (!this.combatFeedbackEnabled) {
+      return;
+    }
     const bar = this.healthBars.get(entityId);
     if (!bar) {
       if (this.entityMap.has(entityId)) {
@@ -756,6 +804,10 @@ export class SceneRuntime {
   }
 
   setPlayerDangerLevel(level: number): void {
+    if (!this.combatFeedbackEnabled) {
+      this.playerDangerLevel = 0;
+      return;
+    }
     this.playerDangerLevel = Math.max(0, Math.min(1, level));
   }
 
@@ -764,6 +816,9 @@ export class SceneRuntime {
     text: string,
     tone: "damage" | "danger" | "loot" | "down" | "info" = "info",
   ): void {
+    if (!this.combatFeedbackEnabled) {
+      return;
+    }
     const object = this.entityMap.get(entityId);
     if (!object) {
       return;
@@ -1903,6 +1958,9 @@ export class SceneRuntime {
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
+    if (!this.selectionEnabled) {
+      return;
+    }
     const rect = this.renderer.domElement.getBoundingClientRect();
     this.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     this.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1956,7 +2014,7 @@ export class SceneRuntime {
     }
 
     if (entity.components.physics) {
-      const colliderGroup = this.buildColliderWireframes(entity.components.physics.shape);
+      const colliderGroup = this.buildColliderWireframes(entity.components.physics.shape, Boolean(entity.components.physics.sensor));
       if (colliderGroup) {
         group.add(colliderGroup);
         hasContent = true;
@@ -1968,8 +2026,13 @@ export class SceneRuntime {
 
   private buildColliderWireframes(
     shape: import("../core/schema").PhysicsShape,
+    sensor = false,
   ): THREE.Object3D | null {
-    const mat = new THREE.LineBasicMaterial({ color: 0x00ff88, transparent: true, opacity: 0.45 });
+    const mat = new THREE.LineBasicMaterial({
+      color: sensor ? 0xffb347 : 0x00ff88,
+      transparent: true,
+      opacity: sensor ? 0.3 : 0.45,
+    });
 
     switch (shape.type) {
       case "box": {
@@ -1991,7 +2054,7 @@ export class SceneRuntime {
       case "compound": {
         const group = new THREE.Group();
         for (const child of shape.children) {
-          const childWire = this.buildColliderWireframes(child.shape);
+          const childWire = this.buildColliderWireframes(child.shape, sensor);
           if (childWire) {
             childWire.position.set(child.offset.x, child.offset.y, child.offset.z);
             if (child.rotation) {

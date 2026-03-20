@@ -24,10 +24,20 @@ export interface PhysicsRuntimeStats {
 
 export class PhysicsRuntime {
   private static readonly SETTLE_DOWN_DELTA = -0.12;
+  private static readonly CHARACTER_AUTOSTEP_HEIGHT = 0.5;
+  private static readonly CHARACTER_AUTOSTEP_WIDTH = 0.25;
+  private static readonly LOW_SURFACE_SUPPORT_HEIGHT = 0.5;
+  private static readonly GROUND_PROBE_MARGIN = 0.2;
+  private static readonly GROUND_SNAP_EPSILON = 0.01;
+  private static readonly SUPPORT_PROBE_HALF_HEIGHT = 0.02;
 
   private readonly bodyMap = new Map<string, RAPIERModule.RigidBody>();
 
   private readonly colliderMap = new Map<string, RAPIERModule.Collider>();
+
+  private readonly characterFootOffsetMap = new Map<string, number>();
+
+  private readonly characterFootRadiusMap = new Map<string, number>();
 
   private characterController: RAPIERModule.KinematicCharacterController | null = null;
 
@@ -125,6 +135,16 @@ export class PhysicsRuntime {
 
       nextBodyMap.set(entity.id, body);
       nextColliderMap.set(entity.id, body.collider(0)!);
+      if (entity.components.character || physics.body === "kinematic") {
+        this.characterFootOffsetMap.set(
+          entity.id,
+          computeSupportHalfHeight(physics.shape, scale),
+        );
+        this.characterFootRadiusMap.set(
+          entity.id,
+          computeSupportFootRadius(physics.shape, scale),
+        );
+      }
     }
 
     // Step once so Rapier populates its broad-phase acceleration structure
@@ -133,7 +153,11 @@ export class PhysicsRuntime {
 
     const nextCharacterController = nextWorld.createCharacterController(0.08);
     nextCharacterController.setSlideEnabled(true);
-    nextCharacterController.enableAutostep(0.2, 0.25, false);
+    nextCharacterController.enableAutostep(
+      PhysicsRuntime.CHARACTER_AUTOSTEP_HEIGHT,
+      PhysicsRuntime.CHARACTER_AUTOSTEP_WIDTH,
+      false,
+    );
     nextCharacterController.setMaxSlopeClimbAngle(Math.PI * 0.35);
     nextCharacterController.setMinSlopeSlideAngle(Math.PI * 0.45);
     nextCharacterController.enableSnapToGround(0.3);
@@ -145,6 +169,8 @@ export class PhysicsRuntime {
     this.syncCount += 1;
     this.bodyMap.clear();
     this.colliderMap.clear();
+    this.characterFootOffsetMap.clear();
+    this.characterFootRadiusMap.clear();
     this.debugState.clear();
     for (const [entityId, body] of nextBodyMap) {
       this.bodyMap.set(entityId, body);
@@ -190,6 +216,7 @@ export class PhysicsRuntime {
     const lines = [
       `Physics body: ${body ? (body.isFixed() ? "static" : body.isKinematic() ? "kinematic" : "dynamic") : "none"}`,
       `Collider: ${collider ? "present" : "none"}`,
+      `Sensor: ${collider ? String(collider.isSensor()) : "n/a"}`,
       `Grounded: ${debug ? String(debug.grounded) : "n/a"}`,
       `Collisions: ${debug ? String(debug.collisions) : "n/a"}`,
     ];
@@ -213,26 +240,72 @@ export class PhysicsRuntime {
     if (!body.isKinematic()) {
       return null;
     }
+    const footOffset = this.characterFootOffsetMap.get(entityId);
+    const footRadius = this.characterFootRadiusMap.get(entityId) ?? 0;
+    let current = body.translation();
+    if (footOffset !== undefined && desiredDelta.y <= PhysicsRuntime.GROUND_SNAP_EPSILON) {
+      const preliftY = this.findSupportCenterY(
+        collider,
+        body,
+        current,
+        footOffset,
+        footRadius,
+        {
+          x: current.x + desiredDelta.x,
+          z: current.z + desiredDelta.z,
+        },
+      );
+      if (
+        preliftY !== null &&
+        preliftY > current.y + PhysicsRuntime.GROUND_SNAP_EPSILON &&
+        preliftY - current.y <= PhysicsRuntime.LOW_SURFACE_SUPPORT_HEIGHT
+      ) {
+        current = this.setCharacterPosition(body, {
+          x: current.x,
+          y: preliftY,
+          z: current.z,
+        });
+      }
+    }
 
     this.characterController.computeColliderMovement(
       collider,
       desiredDelta,
-      undefined,
+      this.rapier.QueryFilterFlags.EXCLUDE_SENSORS,
       undefined,
       (candidate) => candidate.handle !== collider.handle && !candidate.isSensor(),
     );
 
     const applied = this.characterController.computedMovement();
-    const current = body.translation();
-    const nextPosition = {
+    let nextPosition = {
       x: current.x + applied.x,
       y: current.y + applied.y,
       z: current.z + applied.z,
     };
+    if (footOffset !== undefined && desiredDelta.y <= PhysicsRuntime.GROUND_SNAP_EPSILON) {
+      const supportY = this.findSupportCenterY(
+        collider,
+        body,
+        nextPosition,
+        footOffset,
+        footRadius,
+        {
+          x: nextPosition.x,
+          z: nextPosition.z,
+        },
+      );
+      if (
+        supportY !== null &&
+        Math.abs(supportY - nextPosition.y) <= PhysicsRuntime.LOW_SURFACE_SUPPORT_HEIGHT + PhysicsRuntime.GROUND_SNAP_EPSILON
+      ) {
+        nextPosition = {
+          ...nextPosition,
+          y: supportY,
+        };
+      }
+    }
 
-    body.setNextKinematicTranslation(nextPosition);
-    body.setTranslation(nextPosition, false);
-    this.world.propagateModifiedBodyPositionsToColliders();
+    this.setCharacterPosition(body, nextPosition);
 
     const result = {
       position: nextPosition,
@@ -298,16 +371,81 @@ export class PhysicsRuntime {
           shape.radius * Math.max(scale.x, scale.z),
         );
       case "cylinder":
-        return this.rapier.ColliderDesc.cylinder(
-          shape.halfHeight * scale.y,
-          shape.radius * Math.max(scale.x, scale.z),
-        );
+      return this.rapier.ColliderDesc.cylinder(
+        shape.halfHeight * scale.y,
+        shape.radius * Math.max(scale.x, scale.z),
+      );
     }
+  }
+
+  private setCharacterPosition(
+    body: RAPIERModule.RigidBody,
+    position: Vec3,
+  ): Vec3 {
+    body.setNextKinematicTranslation(position);
+    body.setTranslation(position, false);
+    this.world.propagateModifiedBodyPositionsToColliders();
+    const current = body.translation();
+    return {
+      x: current.x,
+      y: current.y,
+      z: current.z,
+    };
+  }
+
+  private findSupportCenterY(
+    collider: RAPIERModule.Collider,
+    body: RAPIERModule.RigidBody,
+    currentPosition: Vec3,
+    footOffset: number,
+    footRadius: number,
+    target: { x: number; z: number },
+  ): number | null {
+    const currentFootY = currentPosition.y - footOffset;
+    const maxRise = PhysicsRuntime.LOW_SURFACE_SUPPORT_HEIGHT;
+    const maxDrop = PhysicsRuntime.LOW_SURFACE_SUPPORT_HEIGHT;
+    const castDistance = maxRise + maxDrop + (PhysicsRuntime.GROUND_PROBE_MARGIN * 2);
+    const startFootY = currentFootY + maxRise + PhysicsRuntime.GROUND_PROBE_MARGIN;
+    const startCenterY = startFootY + PhysicsRuntime.SUPPORT_PROBE_HALF_HEIGHT;
+    const supportShape = new this.rapier.Cylinder(
+      PhysicsRuntime.SUPPORT_PROBE_HALF_HEIGHT,
+      Math.max(footRadius - 0.02, 0.05),
+    );
+    const hit = this.world.castShape(
+      { x: target.x, y: startCenterY, z: target.z },
+      { x: 0, y: 0, z: 0, w: 1 },
+      { x: 0, y: -castDistance, z: 0 },
+      supportShape,
+      0,
+      1,
+      false,
+      this.rapier.QueryFilterFlags.EXCLUDE_SENSORS,
+      undefined,
+      collider,
+      body,
+      (candidate) => candidate.handle !== collider.handle && !candidate.isSensor(),
+    );
+    if (!hit) {
+      return null;
+    }
+    const hitCenterY = startCenterY - (castDistance * hit.time_of_impact);
+    const supportFootY = hitCenterY - PhysicsRuntime.SUPPORT_PROBE_HALF_HEIGHT;
+    const rise = supportFootY - currentFootY;
+    const drop = currentFootY - supportFootY;
+    if (rise > maxRise + PhysicsRuntime.GROUND_SNAP_EPSILON) {
+      return null;
+    }
+    if (drop > maxDrop + PhysicsRuntime.GROUND_SNAP_EPSILON) {
+      return null;
+    }
+    return supportFootY + footOffset;
   }
 
   private retireCurrentWorld(): void {
     this.bodyMap.clear();
     this.colliderMap.clear();
+    this.characterFootOffsetMap.clear();
+    this.characterFootRadiusMap.clear();
     this.debugState.clear();
     this.retiredResources.push({
       world: this.world,
@@ -357,4 +495,53 @@ function eulerToQuaternion(rotation: Rotation3): { x: number; y: number; z: numb
     z: cx * cy * sz + sx * sy * cz,
     w: cx * cy * cz - sx * sy * sz,
   };
+}
+
+function computeSupportHalfHeight(
+  shape: import("../core/schema").PhysicsShape,
+  scale: Vec3,
+): number {
+  switch (shape.type) {
+    case "box":
+      return shape.size.y * scale.y * 0.5;
+    case "sphere":
+      return shape.radius * Math.max(scale.x, scale.y, scale.z);
+    case "capsule":
+      return (shape.halfHeight * scale.y) + (shape.radius * Math.max(scale.x, scale.z));
+    case "cylinder":
+      return shape.halfHeight * scale.y;
+    case "compound": {
+      let maxY = 0.5;
+      for (const child of shape.children) {
+        const childHalfHeight = computeSupportHalfHeight(child.shape, scale);
+        maxY = Math.max(maxY, (child.offset.y * scale.y) + childHalfHeight);
+      }
+      return maxY;
+    }
+  }
+}
+
+function computeSupportFootRadius(
+  shape: import("../core/schema").PhysicsShape,
+  scale: Vec3,
+): number {
+  switch (shape.type) {
+    case "box":
+      return Math.max(shape.size.x * scale.x, shape.size.z * scale.z) * 0.5;
+    case "sphere":
+      return shape.radius * Math.max(scale.x, scale.z);
+    case "capsule":
+      return shape.radius * Math.max(scale.x, scale.z);
+    case "cylinder":
+      return shape.radius * Math.max(scale.x, scale.z);
+    case "compound": {
+      let maxRadius = 0.5;
+      for (const child of shape.children) {
+        const childRadius = computeSupportFootRadius(child.shape, scale);
+        const childOffsetRadius = Math.hypot(child.offset.x * scale.x, child.offset.z * scale.z);
+        maxRadius = Math.max(maxRadius, childRadius + childOffsetRadius);
+      }
+      return maxRadius;
+    }
+  }
 }

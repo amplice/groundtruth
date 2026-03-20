@@ -1,4 +1,12 @@
-import { EntitySpec, PhysicsCompoundChild, PrefabSpec, WorldDocument, ZoneSpec, makeVec3 } from "./schema";
+import {
+  EntitySpec,
+  PhysicsComponent,
+  PhysicsCompoundChild,
+  PrefabSpec,
+  WorldDocument,
+  ZoneSpec,
+  makeVec3,
+} from "./schema";
 
 export interface FlatWorldOptions {
   seed: number;
@@ -29,6 +37,43 @@ const URBAN_L_SHAPE_COLLIDERS: PhysicsCompoundChild[] = [
   { shape: { type: "box", size: makeVec3(10, 17, 27) }, offset: makeVec3(-5.5, 0, 0) },
   { shape: { type: "box", size: makeVec3(11, 17, 10) }, offset: makeVec3(5, 0, -8.5) },
 ];
+
+export function createUrbanRoadWalkPhysics(): PhysicsComponent {
+  return {
+    body: "static",
+    shape: {
+      type: "compound",
+      children: [{
+        shape: {
+          type: "box",
+          size: makeVec3(URBAN_ROAD_TILE_SIZE, URBAN_ROAD_TILE_THICKNESS, URBAN_ROAD_TILE_SIZE),
+        },
+        offset: makeVec3(0, URBAN_ROAD_TILE_THICKNESS * 0.5, 0),
+      }],
+    },
+  };
+}
+
+export function isUrbanRoadWalkPhysics(physics?: PhysicsComponent): boolean {
+  if (!physics || physics.body !== "static" || physics.sensor || physics.shape.type !== "compound") {
+    return false;
+  }
+  const { children } = physics.shape;
+  if (children.length !== 1) {
+    return false;
+  }
+  const [child] = children;
+  if (child.shape.type !== "box") {
+    return false;
+  }
+  return approxEqual(child.shape.size.x, URBAN_ROAD_TILE_SIZE)
+    && approxEqual(child.shape.size.y, URBAN_ROAD_TILE_THICKNESS)
+    && approxEqual(child.shape.size.z, URBAN_ROAD_TILE_SIZE)
+    && approxEqual(child.offset.x, 0)
+    && approxEqual(child.offset.y, URBAN_ROAD_TILE_THICKNESS * 0.5)
+    && approxEqual(child.offset.z, 0)
+    && !child.rotation;
+}
 
 export function createDefaultPrefabs(): Record<string, PrefabSpec> {
   return {
@@ -443,15 +488,9 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
           type: "model",
           format: "gltf",
           uri: "/assets/urban_models/Roads/Road%20type%202/road_2_straight.glb",
-          modelOffset: makeVec3(0, -URBAN_ROAD_TILE_THICKNESS * 0.5, -URBAN_ROAD_TILE_SIZE * 0.5),
+          modelOffset: makeVec3(0, 0, -URBAN_ROAD_TILE_SIZE * 0.5),
         },
-        physics: {
-          body: "static",
-          shape: {
-            type: "box",
-            size: makeVec3(URBAN_ROAD_TILE_SIZE, URBAN_ROAD_TILE_THICKNESS, URBAN_ROAD_TILE_SIZE),
-          },
-        },
+        physics: createUrbanRoadWalkPhysics(),
       },
     },
     urban_road_junction: {
@@ -470,15 +509,9 @@ export function createDefaultPrefabs(): Record<string, PrefabSpec> {
           type: "model",
           format: "gltf",
           uri: "/assets/urban_models/Roads/Road%20type%202/road_2_junction.glb",
-          modelOffset: makeVec3(0, -URBAN_ROAD_TILE_THICKNESS * 0.5, -URBAN_ROAD_TILE_SIZE * 0.5),
+          modelOffset: makeVec3(0, 0, -URBAN_ROAD_TILE_SIZE * 0.5),
         },
-        physics: {
-          body: "static",
-          shape: {
-            type: "box",
-            size: makeVec3(URBAN_ROAD_TILE_SIZE, URBAN_ROAD_TILE_THICKNESS, URBAN_ROAD_TILE_SIZE),
-          },
-        },
+        physics: createUrbanRoadWalkPhysics(),
       },
     },
     urban_flat_square_brick: {
@@ -1916,4 +1949,8 @@ function createMulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), 61 | t);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
+}
+
+function approxEqual(left: number, right: number): boolean {
+  return Math.abs(left - right) <= 0.0001;
 }

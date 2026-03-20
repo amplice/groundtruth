@@ -73,6 +73,7 @@ export type RuntimeFeatureEvent =
     };
 
 export interface RuntimeFeatureHost {
+  hasRuntimeFeature(featureId: RuntimeFeatureId): boolean;
   getControlLine(): string;
   getIdlePrompt(): string;
   getAttackKey(): string;

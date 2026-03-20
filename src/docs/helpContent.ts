@@ -24,6 +24,7 @@ export const humanHelpSections: HelpSection[] = [
     ],
     notes: [
       "The active workspace opens in a thin left rail. Use Hide Workspace when you want the viewport fully visible.",
+      "Use the always-visible Pause button in the top chrome when you want to freeze gameplay without switching to edit mode.",
       "If you only want a blank canvas, click New Empty World.",
       "Load Survival Slice gives you the authored survival demo instead of a generated outpost.",
     ],

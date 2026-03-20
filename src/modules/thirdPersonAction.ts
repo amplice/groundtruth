@@ -105,6 +105,7 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     };
     this.gameplayPolicy = resolvePresetGameplayPolicy(this.preset, context.store.peekProject());
     this.features = createRuntimeFeatures(resolvePresetFeatureIds(this.preset, context.store.peekProject()));
+    context.scene.setCombatFeedbackEnabled(this.hasRuntimeFeature("combat_feedback"));
     context.scene.setPlayerDangerLevel(0);
     for (const feature of this.features) {
       feature.onWorldRebuilt?.(context.store.peekWorld(), context, this);
@@ -266,12 +267,21 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
     return null;
   }
 
-  protected requireFeature<T extends RuntimeFeature>(featureId: RuntimeFeatureId): T {
+  hasRuntimeFeature(featureId: RuntimeFeatureId): boolean {
+    return this.features.some((feature) => feature.id === featureId);
+  }
+
+  protected findFeature<T extends RuntimeFeature>(featureId: RuntimeFeatureId): T | null {
     const feature = this.features.find((item) => item.id === featureId);
+    return (feature as T | undefined) ?? null;
+  }
+
+  protected requireFeature<T extends RuntimeFeature>(featureId: RuntimeFeatureId): T {
+    const feature = this.findFeature<T>(featureId);
     if (!feature) {
       throw new Error(`Expected runtime feature '${featureId}' to be installed.`);
     }
-    return feature as T;
+    return feature;
   }
 
   protected updatePlayerMovement(
@@ -441,6 +451,11 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       }
     }
 
+    if (this.preset.featureIds?.includes("hostile_ai")) {
+      this.settleHostilesWithoutAI(context, playerId);
+      return;
+    }
+
     if (this.preset.hostileBehavior === "lane_2d") {
       this.updateLaneHostiles(dtSeconds, context, playerId);
       return;
@@ -566,6 +581,32 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       });
       this.groundedState.set(entity.id, movement.grounded);
       this.recordHostileMotion(entity.id, movement.position, true, updateDt);
+    }
+  }
+
+  protected settleHostilesWithoutAI(
+    context: ModuleContext,
+    playerId: string,
+  ): void {
+    const world = context.store.peekWorld();
+    this.resetHostileActivity();
+    for (const entity of world.entities) {
+      if (entity.id === playerId) {
+        continue;
+      }
+      const resolved = resolveEntity(world, entity);
+      if (!this.isHostile(resolved)) {
+        continue;
+      }
+      if (this.isDead(resolved)) {
+        const deathAction = this.resolveActionDefinition(resolved, "death");
+        this.lockAnimationState(entity.id, deathAction.state, Number.POSITIVE_INFINITY);
+        this.syncAction(context, entity.id, deathAction);
+        continue;
+      }
+      context.physics.holdCharacter(entity.id);
+      this.syncAnimationState(context, entity.id, "idle");
+      this.recordHostileMotion(entity.id, resolved.transform.position, false, 0);
     }
   }
 
@@ -851,6 +892,10 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       if (feature.onApplyDamage?.(context, this, targetId, amount)) {
         return;
       }
+    }
+
+    if (this.preset.featureIds?.includes("combat")) {
+      return;
     }
 
     const world = context.store.peekWorld();
@@ -1213,9 +1258,6 @@ export class PresetActionModule implements RuntimeModule, RuntimeFeatureHost {
       fadeSeconds: 0.08,
       fallbackSeconds: 0.6,
     };
-    if (resolved.lockMovement !== undefined) {
-      return resolved;
-    }
     return {
       ...resolved,
       lockMovement: actionId === "attack"
