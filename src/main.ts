@@ -685,7 +685,9 @@ async function bootstrap(): Promise<void> {
                 </label>
               </div>
             </details>
-            <div id="asset-fit-canvas" class="asset-fit-canvas" aria-label="Asset fit preview viewport"></div>
+            <div class="inline-summary">
+              The asset preview workspace opens in the main viewport when this tab is active.
+            </div>
             <pre id="asset-fit-status" class="asset-fit-status"></pre>
           </div>
         </details>
@@ -756,6 +758,9 @@ async function bootstrap(): Promise<void> {
           <div id="playtest-hud" class="playtest-hud"></div>
           <div id="workspace-status" class="workspace-status hidden"></div>
         </div>
+        <div id="asset-workspace-root" class="asset-workspace-root" tabindex="0" aria-label="Asset workspace viewport" hidden>
+          <div id="asset-workspace-canvas" class="asset-workspace-canvas"></div>
+        </div>
         <img id="screenshot-preview" class="screenshot-preview" alt="Latest screenshot" />
       </main>
     </div>
@@ -785,7 +790,8 @@ async function bootstrap(): Promise<void> {
   `;
 
   const canvasRoot = root.querySelector<HTMLElement>("#canvas-root");
-  const assetFitCanvasRoot = root.querySelector<HTMLElement>("#asset-fit-canvas");
+  const assetWorkspaceRoot = root.querySelector<HTMLElement>("#asset-workspace-root");
+  const assetFitCanvasRoot = root.querySelector<HTMLElement>("#asset-workspace-canvas");
   const shell = root.querySelector<HTMLElement>(".shell");
   const inspectorSection = root.querySelector<HTMLElement>("#inspector-section");
   const selectionSection = root.querySelector<HTMLElement>("#selection-section");
@@ -898,6 +904,7 @@ async function bootstrap(): Promise<void> {
 
   if (
     !canvasRoot ||
+    !assetWorkspaceRoot ||
     !assetFitCanvasRoot ||
     !shell ||
     !inspectorSection ||
@@ -1136,9 +1143,16 @@ async function bootstrap(): Promise<void> {
     }
     selectEntity(null);
   });
-  const assetFitScene = new SceneRuntime(assetFitCanvasRoot, () => {
-    // Asset fit preview is read-only.
-  });
+  let assetFitScene: SceneRuntime | null = null;
+  const ensureAssetFitScene = (): SceneRuntime => {
+    if (assetFitScene) {
+      return assetFitScene;
+    }
+    assetFitScene = new SceneRuntime(assetFitCanvasRoot, () => {
+      // Asset fit preview is read-only.
+    });
+    return assetFitScene;
+  };
   const physics = await PhysicsRuntime.create(store.getWorld().settings.gravity.y);
   const input = new InputController();
   let runtimeModule = createRuntimeModule(store.getWorld().gameMode);
@@ -1753,7 +1767,7 @@ async function bootstrap(): Promise<void> {
       .join("");
     assetFitBindStateInput.value = semanticStates.includes(selectedState) ? selectedState : semanticStates[0]  ?? "idle";
 
-    const previewReport = assetFitScene.getAssetFitPreviewReport();
+    const previewReport = assetFitScene?.getAssetFitPreviewReport()  ?? null;
     const clipNames = previewReport?.availableClipNames  ?? [];
     const currentBoundClip = assetFitPrefab.render.clips?.[assetFitBindStateInput.value]  ?? "";
     const selectedClip = assetFitBindClipInput.value || currentBoundClip || clipNames[0] || "";
@@ -1795,7 +1809,7 @@ async function bootstrap(): Promise<void> {
       value: state,
       label: `state:${state}`,
     }));
-    const previewReport = assetFitScene.getAssetFitPreviewReport();
+    const previewReport = assetFitScene?.getAssetFitPreviewReport()  ?? null;
     const rawClips = (previewReport?.availableClipNames  ?? [])
       .map((clipName) => ({
         value: `raw:${clipName}`,
@@ -1810,11 +1824,10 @@ async function bootstrap(): Promise<void> {
   const refreshAssetFitPreview = (): void => {
     const assetFitPrefab = getAssetFitPrefab();
     if (!assetFitPrefab) {
-      assetFitScene.setAssetFitPreview(null, null, null);
+      assetFitScene?.setAssetFitPreview(null, null, null);
       assetFitStatusNode.textContent = "Pick a model prefab to preview it on the floor and start fitting it.";
       return;
     }
-    syncViewportSizes();
     const nextScale = readNumber(assetFitScaleInput.value, assetFitPrefab.render.modelScale?.x  ?? 1);
     const nextOffsetY = readNumber(assetFitOffsetYInput.value, assetFitPrefab.render.modelOffset?.y  ?? 0);
     const nextYawDegrees = readNumber(assetFitYawInput.value, ((assetFitPrefab.render.modelRotation?.y  ?? 0) * 180) / Math.PI);
@@ -1836,15 +1849,6 @@ async function bootstrap(): Promise<void> {
     const previewChoice = parseAssetFitAnimationSelection(assetFitAnimationInput.value || "idle", adjustedRender, animSpeed);
     const previewPhysics = buildAssetFitPhysicsShape();
     const previewSensor = !assetFitSolidInput.checked;
-    assetFitScene.setAssetFitPreview(
-      assetFitPrefab.prefabId,
-      assetFitPrefab.prefab.name,
-      previewChoice.render,
-      previewChoice.animation,
-      previewPhysics,
-      previewSensor,
-    );
-    const previewReport = assetFitScene.getAssetFitPreviewReport();
     const sensorNote = previewPhysics
       ? previewSensor
         ? "Collision mode: sensor (non-blocking)."
@@ -1853,6 +1857,27 @@ async function bootstrap(): Promise<void> {
     const collisionNote = assetFitCollisionShapeInput.value === "compound"
       ? `Collision: compound (${assetFitLockedCompoundChildCount} children). Previewed from prefab and read-only in Asset Fit.`
       : "";
+    const previewScene = activeSidebarPane === "assets" ? ensureAssetFitScene() : assetFitScene;
+    if (!previewScene) {
+      assetFitStatusNode.textContent = [
+        `Ready to preview '${assetFitPrefab.prefab.name}'.`,
+        "Open the Assets workspace to inspect it in the main viewport.",
+        sensorNote,
+        collisionNote,
+      ].filter(Boolean).join("\n");
+      updateAssetFitOptionsFromPreview();
+      return;
+    }
+    previewScene.setAssetFitPreview(
+      assetFitPrefab.prefabId,
+      assetFitPrefab.prefab.name,
+      previewChoice.render,
+      previewChoice.animation,
+      previewPhysics,
+      previewSensor,
+    );
+    syncViewportSizes();
+    const previewReport = previewScene.getAssetFitPreviewReport();
     assetFitStatusNode.textContent = previewReport
       ? [
           `Preview ready for '${assetFitPrefab.prefab.name}'.`,
@@ -2738,7 +2763,7 @@ async function bootstrap(): Promise<void> {
     syncAssetFitPrefabs();
     syncAssetFitInputs();
     updateAssetFitOptionsFromPreview();
-    assetFitStatusNode.textContent = assetFitScene.getAssetFitPreviewReport()
+    assetFitStatusNode.textContent = assetFitScene?.getAssetFitPreviewReport()
       ? formatSingleAssetReport(assetFitScene.getAssetFitPreviewReport()!)
       : "Pick a model prefab, refresh the preview, adjust the fit, then save it back to prefab defaults.";
     const playtestEvaluation = playtestSession
@@ -3236,8 +3261,19 @@ async function bootstrap(): Promise<void> {
   const syncViewportSizes = (): void => {
     requestAnimationFrame(() => {
       scene.handleViewportResize();
-      assetFitScene.handleViewportResize();
+      assetFitScene?.handleViewportResize();
     });
+  };
+
+  const syncViewportWorkspaceState = (): void => {
+    const showingAssetsWorkspace = activeSidebarPane === "assets";
+    canvasRoot.hidden = showingAssetsWorkspace;
+    assetWorkspaceRoot.hidden = !showingAssetsWorkspace;
+    if (showingAssetsWorkspace) {
+      ensureAssetFitScene();
+      refreshAssetFitPreview();
+    }
+    syncViewportSizes();
   };
 
   const syncSidebarState = (): void => {
@@ -3294,7 +3330,7 @@ async function bootstrap(): Promise<void> {
       section.open = preferred.includes(title);
     }
     syncChromeMenuState();
-    syncViewportSizes();
+    syncViewportWorkspaceState();
   };
 
   const syncDocs = (): void => {
@@ -4157,6 +4193,7 @@ async function bootstrap(): Promise<void> {
     const now = performance.now();
     const dtSeconds = Math.min((now - lastFrameTime) / 1000, 0.05);
     lastFrameTime = now;
+    const showingAssetsWorkspace = activeSidebarPane === "assets";
     if (stressCooldownFrames > 0) {
       stressCooldownFrames -= 1;
     } else if (stressActions.length > 0) {
@@ -4168,9 +4205,15 @@ async function bootstrap(): Promise<void> {
       pendingWorldRebuild = false;
       rebuildWorld();
     }
+    if (showingAssetsWorkspace) {
+      ensureAssetFitScene().renderFrame(dtSeconds);
+      refreshSidebar();
+      input.endFrame();
+      requestAnimationFrame(animate);
+      return;
+    }
     if (worldSwapState === "failed") {
       scene.renderFrame(dtSeconds);
-      assetFitScene.renderFrame(dtSeconds);
       refreshSidebar();
       input.endFrame();
       requestAnimationFrame(animate);
@@ -4178,7 +4221,6 @@ async function bootstrap(): Promise<void> {
     }
     if (interactionMode === "edit" || gameplayPaused) {
       scene.renderFrame(dtSeconds);
-      assetFitScene.renderFrame(dtSeconds);
       refreshSidebar();
       input.endFrame();
       requestAnimationFrame(animate);
@@ -4199,7 +4241,6 @@ async function bootstrap(): Promise<void> {
       issuesNode.textContent = `Runtime step failed: ${message}`;
     }
     scene.renderFrame(dtSeconds);
-    assetFitScene.renderFrame(dtSeconds);
     refreshSidebar();
     input.endFrame();
     requestAnimationFrame(animate);
